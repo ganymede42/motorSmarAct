@@ -13,3 +13,8 @@ DBDS += smarActApp/src/devSmarActMCSMotor.dbd
 
 SOURCES += smarActApp/src/smarActSCUMotorDriver.cpp
 DBDS += smarActApp/src/devSmarActSCUMotor.dbd
+
+
+TEMPLATES+=$(wildcard ./smarActApp/Db/*.db)
+TEMPLATES+=$(wildcard ./smarActApp/Db/*.template)
+TEMPLATES+=$(wildcard ./dsmarActApp/Dbb/*.subs)
