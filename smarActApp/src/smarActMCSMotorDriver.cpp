@@ -169,6 +169,10 @@ size_t           got_junk;
 int              eomReason;
 pAxes_ = (SmarActMCSAxis **)(asynMotorController::pAxes_);
 
+  	createParam(MCSPtypString, asynParamInt32, &this->ptyp_);
+  	createParam(MCSPtypRbString, asynParamInt32, &this->ptyprb_);
+  	createParam(MCSCalString, asynParamInt32, &this->cal_);
+
 	status = pasynOctetSyncIO->connect(IOPortName, 0, &asynUserMot_p_, NULL);
 	if ( status ) {
 		asynPrint(this->pasynUserSelf, ASYN_TRACE_ERROR,
@@ -249,6 +253,62 @@ size_t     got;
 	status = sendCmd(&got, rep, len, DEFLT_TIMEOUT, fmt, ap);
 	va_end(ap);
 	return status;
+}
+
+/** Called when asyn clients call pasynInt32->write().
+  * Extracts the function and axis number from pasynUser.
+  * Sets the value in the parameter library.
+  * For all other functions it calls asynMotorController::writeInt32.
+  * Calls any registered callbacks for this pasynUser->reason and address.
+  * \param[in] pasynUser asynUser structure that encodes the reason and address.
+  * \param[in] value     Value to write. */
+asynStatus SmarActMCSController::writeInt32(asynUser *pasynUser, epicsInt32 value)
+{
+  int function = pasynUser->reason;
+  asynStatus status = asynSuccess;
+  char rep[REP_LEN];
+  int val, ax;
+  SmarActMCSAxis *pAxis = static_cast<SmarActMCSAxis*>(getAxis(pasynUser));
+
+  if (pAxis == NULL) {
+	asynPrint(pasynUser, ASYN_TRACE_ERROR,
+    	"SmarActMCSController:writeInt32: error, function: %i. Invalid axis number.\n",
+    	function);
+	return asynError;
+  }
+
+  /* Set the parameter and readback in the parameter library.  This may be overwritten when we read back the
+   * status at the end, but that's OK */
+  status = setIntegerParam(pAxis->channel_, function, value);
+
+  if (function == ptyp_) {
+    /* set positioner type */
+    status = sendCmd(rep, sizeof(rep), ":SST%i,%i", pAxis->channel_, value);
+	if (status) return status;
+	if (parseReply(rep, &ax, &val)) return asynError;
+  }
+  else if (function == cal_) {
+    /* send calibration command */
+    status = sendCmd(rep, sizeof(rep), ":CS%i", pAxis->channel_, value);
+	if (status) return status;
+	if (parseReply(rep, &ax, &val)) return asynError;
+  }
+  else {
+    /* Call base class method */
+    status = asynMotorController::writeInt32(pasynUser, value);
+  }
+
+  /* Do callbacks so higher layers see any changes */
+  callParamCallbacks(pAxis->channel_);
+  if (status)
+    asynPrint(pasynUser, ASYN_TRACE_ERROR,
+        "SmarActMCSController:writeInt32: error, status=%d function=%d, value=%d\n",
+        status, function, value);
+  else
+    asynPrint(pasynUser, ASYN_TRACEIO_DRIVER,
+        "SmarActMCSController:writeInt32: function=%d, value=%d\n",
+        function, value);
+  return status;
 }
 
 /* Obtain value of the 'motorClosedLoop_' parameter (which
@@ -440,6 +500,11 @@ enum SmarActMCSStatus status;
 #ifdef DEBUG
 	printf(" status %u", status);
 #endif
+
+	// Get currnetly set positioner type
+	if ( (comStatus_ = getVal("GST", &val)) )
+		goto bail;
+	setIntegerParam(c_p_->ptyprb_, val);
 
 bail:
 	setIntegerParam(c_p_->motorStatusProblem_,    comStatus_ ? 1 : 0 );
