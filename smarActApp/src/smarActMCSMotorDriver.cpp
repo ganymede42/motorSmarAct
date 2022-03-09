@@ -172,7 +172,12 @@ pAxes_ = (SmarActMCSAxis **)(asynMotorController::pAxes_);
 
   	createParam(MCSPtypString, asynParamInt32, &this->ptyp_);
   	createParam(MCSPtypRbString, asynParamInt32, &this->ptyprb_);
+  	createParam(MCSAutoZeroString, asynParamInt32, &this->autoZero_);
+  	createParam(MCSHoldTimeString, asynParamInt32, &this->holdTime_);
   	createParam(MCSCalString, asynParamInt32, &this->cal_);
+
+	setIntegerParam(this->autoZero_, 1);
+	setIntegerParam(this->holdTime_, 0);
 
 	status = pasynOctetSyncIO->connect(IOPortName, 0, &asynUserMot_p_, NULL);
 	if ( status ) {
@@ -280,13 +285,14 @@ asynStatus SmarActMCSController::writeInt32(asynUser *pasynUser, epicsInt32 valu
 
   /* Set the parameter and readback in the parameter library.  This may be overwritten when we read back the
    * status at the end, but that's OK */
-  status = setIntegerParam(pAxis->channel_, function, value);
+  status = setIntegerParam(pAxis->axisNo_, function, value);
 
   if (function == ptyp_) {
     /* set positioner type */
     status = sendCmd(rep, sizeof(rep), ":SST%i,%i", pAxis->channel_, value);
 	if (status) return status;
 	if (parseReply(rep, &ax, &val)) return asynError;
+	pAxis->checkType();
   }
   else if (function == cal_) {
     /* send calibration command */
@@ -312,15 +318,22 @@ asynStatus SmarActMCSController::writeInt32(asynUser *pasynUser, epicsInt32 valu
   return status;
 }
 
-/* Obtain value of the 'motorClosedLoop_' parameter (which
- * maps to the record's CNEN field)
+/* Check if the positioner type set on the controller
+ * is linear or rotary and set the isRot_ parameter correctly.
  */
-int
-SmarActMCSAxis::getClosedLoop()
+void
+SmarActMCSAxis::checkType()
 {
-int val;
-	c_p_->getIntegerParam(axisNo_, c_p_->motorClosedLoop_, &val);
-	return val;
+	int val;
+	// Attempt to check linear position, if we receive
+	// an error, we're a rotary motor.
+	if ( (comStatus_ = getVal("GP", &val)) ) {
+		isRot_ = 1;
+	}
+	else {
+		isRot_ = 0;
+	}
+	return;
 }
 
 SmarActMCSAxis::SmarActMCSAxis(class SmarActMCSController *cnt_p, int axis, int channel)
@@ -342,24 +355,7 @@ SmarActMCSAxis::SmarActMCSAxis(class SmarActMCSController *cnt_p, int axis, int 
 	if ( (comStatus_ = getVal("GS", &val)) )
 		goto bail;
 
-	if ( Holding == val ) {
-		// still holding? This means that - in a previous life - the
-		// axis was configured for 'infinite holding'. Inherit this
-		// (until the next 'move' command that is).
-		///
-		holdTime_ = HOLD_FOREVER;
-	} else {
-		// initial value from 'closed-loop' property
-		holdTime_ = getClosedLoop() ? HOLD_FOREVER : 0;
-	}
-
-	// Attempt to check linear position, if we receive
-	// an error, we're a rotary motor. 
-	isRot_ = 0;
-	
-	if ( (comStatus_ = getVal("GP", &val)) ) {
-		isRot_ = 1;
-	}
+	checkType();
 
         // Query the sensor type
 	if ( (comStatus_ = getVal("GST", &sensorType_)) )
@@ -464,19 +460,6 @@ enum SmarActMCSStatus status;
 	status = (enum SmarActMCSStatus)val;
 
 	switch ( status ) {
-		default:
-			*moving_p = false;
-		break;
-
-		/* If we use 'infinite' holding (until the next 'move' command)
-		 * then the 'Holding' state must be considered 'not moving'. However,
-		 * if we use a 'finite' holding time then we probably should consider
-		 * the 'move' command incomplete until the holding time expires.
-		 */
-		case Holding:
-			*moving_p = HOLD_FOREVER == holdTime_ ? false : true;
-		break;
-
 		case Stepping:
 		case Scanning:
 		case Targeting:
@@ -485,6 +468,12 @@ enum SmarActMCSStatus status;
 		case FindRefMark:
 			*moving_p = true;
 		break;
+		
+		case Holding:
+		default:
+			*moving_p = false;
+			break;
+
 	}
 
 	setIntegerParam(c_p_->motorStatusDone_, ! *moving_p );
@@ -506,6 +495,10 @@ enum SmarActMCSStatus status;
 	if ( (comStatus_ = getVal("GST", &val)) )
 		goto bail;
 	setIntegerParam(c_p_->ptyprb_, val);
+
+
+	if ( (comStatus_ = getVal("GST", &val)) )
+		goto bail;
 
 bail:
 	setIntegerParam(c_p_->motorStatusProblem_,    comStatus_ ? 1 : 0 );
@@ -567,6 +560,7 @@ asynStatus status;
 asynStatus  
 SmarActMCSAxis::move(double position, int relative, double min_vel, double max_vel, double accel)
 {
+int holdTime;
 const char *fmt_rot = relative ? ":MAR%u,%ld,%d,%d" : ":MAA%u,%ld,%d,%d";
 const char *fmt_lin = relative ? ":MPR%u,%ld,%d" : ":MPA%u,%ld,%d";
 const char *fmt;
@@ -587,10 +581,9 @@ int rev;
 	if ( (comStatus_ = setSpeed(max_vel)) )
 		goto bail;
 
-	/* cache 'closed-loop' setting until next move */
-	holdTime_  = getClosedLoop() ? HOLD_FOREVER : 0;
-
 	rpos = rint(position);
+	
+	c_p_->getIntegerParam(axisNo_, c_p_->holdTime_, &holdTime);
 
 	if ( isRot_ ) {
 		angle = (long)rpos % UDEG_PER_REV;
@@ -599,9 +592,9 @@ int rev;
 			angle += UDEG_PER_REV;
 			rev -= 1;
 		}
-		comStatus_ = moveCmd(fmt, channel_, angle, rev, holdTime_);
+		comStatus_ = moveCmd(fmt, channel_, angle, rev, holdTime);
 	} else {
-		comStatus_ = moveCmd(fmt, channel_, (long)rpos, holdTime_);
+		comStatus_ = moveCmd(fmt, channel_, (long)rpos, holdTime);
 	}
 
 bail:
@@ -616,7 +609,8 @@ bail:
 asynStatus
 SmarActMCSAxis::home(double min_vel, double max_vel, double accel, int forwards)
 {
-
+	int holdTime;
+	int autoZero;
 #ifdef DEBUG
 	printf("Home %u\n", forwards);
 #endif
@@ -624,10 +618,10 @@ SmarActMCSAxis::home(double min_vel, double max_vel, double accel, int forwards)
 	if ( (comStatus_ = setSpeed(max_vel)) )
 		goto bail;
 
-	/* cache 'closed-loop' setting until next move */
-	holdTime_  = getClosedLoop() ? HOLD_FOREVER : 0;
+	c_p_->getIntegerParam(axisNo_, c_p_->autoZero_, &autoZero);
+	c_p_->getIntegerParam(axisNo_, c_p_->holdTime_, &holdTime);
 
-	comStatus_ = moveCmd(":FRM%u,%u,%d,%d", channel_, forwards ? 0 : 1, holdTime_, isRot_ ? 1 : 0);
+	comStatus_ = moveCmd(":FRM%u,%u,%d,%d", channel_, forwards ? 0 : 1, holdTime, autoZero);
 
 bail:
 	if ( comStatus_ ) {
@@ -720,7 +714,7 @@ char	   dir = 1;
 	}
 	else {
 		tgt_pos = FAR_AWAY_LIN * dir;
-	comStatus_ = moveCmd(":MPR%u,%ld,0", channel_, tgt_pos);
+		comStatus_ = moveCmd(":MPR%u,%ld,0", channel_, tgt_pos);
 	}
 
 bail:

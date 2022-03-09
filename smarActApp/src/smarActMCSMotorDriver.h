@@ -17,6 +17,8 @@
 /** drvInfo strings for extra parameters that the MCS2 controller supports */
 #define MCSPtypString "PTYP"
 #define MCSPtypRbString "PTYP_RB"
+#define MCSAutoZeroString "AUTO_ZERO"
+#define MCSHoldTimeString "HOLD_TIME"
 #define MCSCalString "CAL"
 
 enum SmarActMCSExceptionType {
@@ -59,7 +61,7 @@ public:
 	virtual asynStatus getVal(const char *parm, int *val_p);
 	virtual asynStatus getAngle(int *val_p, int *rev_p);
 	virtual asynStatus moveCmd(const char *cmd, ...);
-	virtual int        getClosedLoop();
+	virtual void       checkType();
 
 	int         getVel() const { return vel_; }
 
@@ -70,7 +72,6 @@ private:
 	SmarActMCSController   *c_p_;  // pointer to asynMotorController for this axis
 	asynStatus             comStatus_;
 	int                    vel_;
-	unsigned               holdTime_;
 	int                    channel_;
 	int                    sensorType_;
 	int                    isRot_;
@@ -101,6 +102,8 @@ private:
   	int ptyp_; /**< positioner type */
 #define FIRST_MCS_PARAM ptyp_
   	int ptyprb_; /**< positioner type readback */
+	int autoZero_;
+	int holdTime_;
   	int cal_;  /**< calibration command */
 #define LAST_MCS_PARAM cal_
 #define NUM_MCS_PARAMS (&LAST_MCS_PARAM - &FIRST_MCS_PARAM + 1)
