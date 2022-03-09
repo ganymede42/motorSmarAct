@@ -430,7 +430,8 @@ int        ax;
 asynStatus
 SmarActMCSAxis::poll(bool *moving_p)
 {
-epicsInt64             val;
+epicsInt64			   pos;
+epicsInt32             val;
 epicsInt32             angle;
 int                    rev;
 enum SmarActMCSStatus status;
@@ -439,15 +440,15 @@ enum SmarActMCSStatus status;
 		if ( (comStatus_ = getAngle(&angle, &rev)) )
 			goto bail;
 		// Convert angle and revs to total angle
-		val = rev * UDEG_PER_REV + angle;
+		pos = rev * UDEG_PER_REV + angle;
 	}
 	else {
-		if ( (comStatus_ = getVal("GP", &val)) )
+		if ( (comStatus_ = getVal("GP", (int *)&pos)) )
 			goto bail;
         }
 
-	setDoubleParam(c_p_->motorEncoderPosition_, (double)val);
-	setDoubleParam(c_p_->motorPosition_, (double)val);
+	setDoubleParam(c_p_->motorEncoderPosition_, (double)pos);
+	setDoubleParam(c_p_->motorPosition_, (double)pos);
 #ifdef DEBUG
 	printf("POLL (position %d)", val);
 #endif
