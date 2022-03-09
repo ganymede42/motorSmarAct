@@ -32,7 +32,8 @@
 
 #define HOLD_FOREVER 60000
 #define HOLD_NEVER       0
-#define FAR_AWAY     1000000000 /*nm*/
+#define FAR_AWAY_LIN     1000000000 /*nm*/
+#define FAR_AWAY_ROT	 32767 /*revolutions*/
 #define UDEG_PER_REV 360000000
 
 #ifdef __MSC__
@@ -684,7 +685,8 @@ asynStatus
 SmarActMCSAxis::moveVelocity(double min_vel, double max_vel, double accel)
 {
 long       speed   = (long)rint(fabs(max_vel));
-long       tgt_pos = FAR_AWAY;
+long       tgt_pos;
+char	   dir = 1;
 
 	/* No MCS command we an use directly. Just use a 'relative move' to
 	 * very far target.
@@ -706,13 +708,20 @@ long       tgt_pos = FAR_AWAY;
 	}
 
 	if ( max_vel < 0 ) {
-		tgt_pos = -tgt_pos; 
+		dir = -1; 
 	}
 
 	if ( (comStatus_ = setSpeed(max_vel)) )
 		goto bail;
 
+	if (isRot_) {
+		tgt_pos = FAR_AWAY_ROT * dir;
+		comStatus_ = moveCmd(":MAR%u,0,%ld,0", channel_, tgt_pos);
+	}
+	else {
+		tgt_pos = FAR_AWAY_LIN * dir;
 	comStatus_ = moveCmd(":MPR%u,%ld,0", channel_, tgt_pos);
+	}
 
 bail:
 	if ( comStatus_ ) {
