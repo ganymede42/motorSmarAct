@@ -491,7 +491,7 @@ enum SmarActMCSStatus status;
 	printf(" status %u", status);
 #endif
 
-	// Get currnetly set positioner type
+	// Get currently set positioner type
 	if ( (comStatus_ = getVal("GST", &val)) )
 		goto bail;
 	setIntegerParam(c_p_->ptyprb_, val);
