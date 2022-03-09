@@ -13,6 +13,7 @@
 #include <asynMotorAxis.h>
 #include <stdarg.h>
 #include <exception>
+#include <epicsTypes.h>
 
 /** drvInfo strings for extra parameters that the MCS2 controller supports */
 #define MCSPtypString "PTYP"
@@ -71,7 +72,7 @@ protected:
 private:
 	SmarActMCSController   *c_p_;  // pointer to asynMotorController for this axis
 	asynStatus             comStatus_;
-	int                    vel_;
+	epicsInt32            vel_;
 	int                    channel_;
 	int                    sensorType_;
 	int                    isRot_;

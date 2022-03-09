@@ -432,8 +432,8 @@ int        ax;
 asynStatus
 SmarActMCSAxis::poll(bool *moving_p)
 {
-int                    val;
-int                    angle;
+epicsInt64             val;
+epicsInt32             angle;
 int                    rev;
 enum SmarActMCSStatus status;
 
@@ -544,10 +544,10 @@ bail:
 asynStatus
 SmarActMCSAxis::setSpeed(double velocity)
 {
-long       vel;
-asynStatus status;
+epicsInt32 vel;
+asynStatus  status;
 
-	if ( (vel = (long)rint(fabs(velocity))) != vel_ ) {
+	if ( (vel = (epicsInt32)rint(fabs(velocity))) != vel_ ) {
 		/* change speed */
 		if ( asynSuccess == (status = moveCmd(":SCLS%u,%ld", channel_, vel)) ) {
 			vel_ = vel;
@@ -565,7 +565,7 @@ const char *fmt_rot = relative ? ":MAR%u,%ld,%d,%d" : ":MAA%u,%ld,%d,%d";
 const char *fmt_lin = relative ? ":MPR%u,%ld,%d" : ":MPA%u,%ld,%d";
 const char *fmt;
 double rpos;
-long angle;
+epicsInt32 angle;
 int rev;
 
 	if ( isRot_ ) {
@@ -586,7 +586,7 @@ int rev;
 	c_p_->getIntegerParam(axisNo_, c_p_->holdTime_, &holdTime);
 
 	if ( isRot_ ) {
-		angle = (long)rpos % UDEG_PER_REV;
+		angle = (epicsInt32)rpos % UDEG_PER_REV;
 		rev = (int)(rpos / UDEG_PER_REV);
 		if (angle < 0) {
 			angle += UDEG_PER_REV;
@@ -594,7 +594,7 @@ int rev;
 		}
 		comStatus_ = moveCmd(fmt, channel_, angle, rev, holdTime);
 	} else {
-		comStatus_ = moveCmd(fmt, channel_, (long)rpos, holdTime);
+		comStatus_ = moveCmd(fmt, channel_, (epicsInt32)rpos, holdTime);
 	}
 
 bail:
@@ -659,12 +659,12 @@ double rpos;
 		// For rotation stages the revolution will always be set to zero
 		// Only set position if it is between zero an 360 degrees
 		if (rpos >= 0.0 && rpos < (double)UDEG_PER_REV) {
-			comStatus_ = moveCmd(":SP%u,%d", channel_, (long)rpos);
+			comStatus_ = moveCmd(":SP%u,%d", channel_, (epicsInt32)rpos);
 		} else {
 			comStatus_ = asynError;
 		}
 	} else {
-		comStatus_ = moveCmd(":SP%u,%d", channel_, (long)rpos);
+		comStatus_ = moveCmd(":SP%u,%d", channel_, (epicsInt32)rpos);
 	}
 
 	if ( comStatus_ ) {
@@ -678,9 +678,9 @@ double rpos;
 asynStatus
 SmarActMCSAxis::moveVelocity(double min_vel, double max_vel, double accel)
 {
-long       speed   = (long)rint(fabs(max_vel));
-long       tgt_pos;
-char	   dir = 1;
+epicsInt32  speed   = (epicsInt32)rint(fabs(max_vel));
+epicsInt32  tgt_pos;
+char	    dir = 1;
 
 	/* No MCS command we an use directly. Just use a 'relative move' to
 	 * very far target.
