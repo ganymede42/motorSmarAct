@@ -30,8 +30,6 @@
 #define REP_LEN 50
 #define DEFLT_TIMEOUT 2.0
 
-#define HOLD_FOREVER 60000
-#define HOLD_NEVER       0
 #define FAR_AWAY_LIN     1000000000 /*nm*/
 #define FAR_AWAY_ROT	 32767 /*revolutions*/
 #define UDEG_PER_REV 360000000
