@@ -679,7 +679,7 @@ SmarActMCSAxis::moveVelocity(double min_vel, double max_vel, double accel)
 {
 epicsInt32  speed   = (epicsInt32)rint(fabs(max_vel));
 epicsInt32  tgt_pos;
-epicsInt8   dir = 1;
+signed char dir = 1;
 
 	/* No MCS command we an use directly. Just use a 'relative move' to
 	 * very far target.
