@@ -430,7 +430,7 @@ int        ax;
 asynStatus
 SmarActMCSAxis::poll(bool *moving_p)
 {
-epicsInt64			   pos;
+epicsInt32			   pos;
 epicsInt32             val;
 epicsInt32             angle;
 int                    rev;
@@ -445,8 +445,7 @@ enum SmarActMCSStatus status;
 	else {
 		if ( (comStatus_ = getVal("GP", (int *)&pos)) )
 			goto bail;
-        }
-
+    }
 	setDoubleParam(c_p_->motorEncoderPosition_, (double)pos);
 	setDoubleParam(c_p_->motorPosition_, (double)pos);
 #ifdef DEBUG
@@ -563,7 +562,7 @@ int holdTime;
 const char *fmt_rot = relative ? ":MAR%u,%ld,%d,%d" : ":MAA%u,%ld,%d,%d";
 const char *fmt_lin = relative ? ":MPR%u,%ld,%d" : ":MPA%u,%ld,%d";
 const char *fmt;
-double rpos;
+long int rpos;
 epicsInt32 angle;
 int rev;
 
@@ -580,7 +579,7 @@ int rev;
 	if ( (comStatus_ = setSpeed(max_vel)) )
 		goto bail;
 
-	rpos = rint(position);
+	rpos = lround(position);
 	
 	c_p_->getIntegerParam(axisNo_, c_p_->holdTime_, &holdTime);
 
@@ -593,7 +592,7 @@ int rev;
 		}
 		comStatus_ = moveCmd(fmt, channel_, angle, rev, holdTime);
 	} else {
-		comStatus_ = moveCmd(fmt, channel_, (epicsInt32)rpos, holdTime);
+		comStatus_ = moveCmd(fmt, channel_, rpos, holdTime);
 	}
 
 bail:
