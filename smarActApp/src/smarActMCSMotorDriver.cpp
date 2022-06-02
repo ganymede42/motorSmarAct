@@ -172,6 +172,7 @@ pAxes_ = (SmarActMCSAxis **)(asynMotorController::pAxes_);
   	createParam(MCSPtypRbString, asynParamInt32, &this->ptyprb_);
   	createParam(MCSAutoZeroString, asynParamInt32, &this->autoZero_);
   	createParam(MCSHoldTimeString, asynParamInt32, &this->holdTime_);
+  	createParam(MCSSclfString, asynParamInt32, &this->sclf_);
   	createParam(MCSCalString, asynParamInt32, &this->cal_);
 
 	status = pasynOctetSyncIO->connect(IOPortName, 0, &asynUserMot_p_, NULL);
@@ -291,7 +292,13 @@ asynStatus SmarActMCSController::writeInt32(asynUser *pasynUser, epicsInt32 valu
   }
   else if (function == cal_) {
     /* send calibration command */
-    status = sendCmd(rep, sizeof(rep), ":CS%i", pAxis->channel_, value);
+    status = sendCmd(rep, sizeof(rep), ":CS%i", pAxis->channel_);
+	if (status) return status;
+	if (parseReply(rep, &ax, &val)) return asynError;
+  }
+  else if (function == sclf_) {
+    /* send calibration command */
+    status = sendCmd(rep, sizeof(rep), ":SCLF%i,%i", pAxis->channel_, value);
 	if (status) return status;
 	if (parseReply(rep, &ax, &val)) return asynError;
   }

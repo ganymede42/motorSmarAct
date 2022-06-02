@@ -20,6 +20,7 @@
 #define MCSPtypRbString "PTYP_RB"
 #define MCSAutoZeroString "AUTO_ZERO"
 #define MCSHoldTimeString "HOLD_TIME"
+#define MCSSclfString "SCLF"
 #define MCSCalString "CAL"
 
 enum SmarActMCSExceptionType {
@@ -105,6 +106,7 @@ private:
   	int ptyprb_; /**< positioner type readback */
 	int autoZero_;
 	int holdTime_;
+	int sclf_; /**< set maximum closed loop frequency */
   	int cal_;  /**< calibration command */
 #define LAST_MCS_PARAM cal_
 #define NUM_MCS_PARAMS (&LAST_MCS_PARAM - &FIRST_MCS_PARAM + 1)
