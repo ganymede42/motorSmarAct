@@ -174,9 +174,6 @@ pAxes_ = (SmarActMCSAxis **)(asynMotorController::pAxes_);
   	createParam(MCSHoldTimeString, asynParamInt32, &this->holdTime_);
   	createParam(MCSCalString, asynParamInt32, &this->cal_);
 
-	setIntegerParam(this->autoZero_, 1);
-	setIntegerParam(this->holdTime_, 0);
-
 	status = pasynOctetSyncIO->connect(IOPortName, 0, &asynUserMot_p_, NULL);
 	if ( status ) {
 		asynPrint(this->pasynUserSelf, ASYN_TRACE_ERROR,
@@ -352,6 +349,9 @@ SmarActMCSAxis::SmarActMCSAxis(class SmarActMCSController *cnt_p, int axis, int 
 		goto bail;
 	if ( (comStatus_ = getVal("GS", &val)) )
 		goto bail;
+
+	setIntegerParam(c_p_->autoZero_, 1);
+	setIntegerParam(c_p_->holdTime_, 0);
 
 	checkType();
 
