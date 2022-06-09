@@ -172,10 +172,8 @@ pAxes_ = (SmarActMCSAxis **)(asynMotorController::pAxes_);
   	createParam(MCSPtypRbString, asynParamInt32, &this->ptyprb_);
   	createParam(MCSAutoZeroString, asynParamInt32, &this->autoZero_);
   	createParam(MCSHoldTimeString, asynParamInt32, &this->holdTime_);
+  	createParam(MCSSclfString, asynParamInt32, &this->sclf_);
   	createParam(MCSCalString, asynParamInt32, &this->cal_);
-
-	setIntegerParam(this->autoZero_, 1);
-	setIntegerParam(this->holdTime_, 0);
 
 	status = pasynOctetSyncIO->connect(IOPortName, 0, &asynUserMot_p_, NULL);
 	if ( status ) {
@@ -294,7 +292,13 @@ asynStatus SmarActMCSController::writeInt32(asynUser *pasynUser, epicsInt32 valu
   }
   else if (function == cal_) {
     /* send calibration command */
-    status = sendCmd(rep, sizeof(rep), ":CS%i", pAxis->channel_, value);
+    status = sendCmd(rep, sizeof(rep), ":CS%i", pAxis->channel_);
+	if (status) return status;
+	if (parseReply(rep, &ax, &val)) return asynError;
+  }
+  else if (function == sclf_) {
+    /* send calibration command */
+    status = sendCmd(rep, sizeof(rep), ":SCLF%i,%i", pAxis->channel_, value);
 	if (status) return status;
 	if (parseReply(rep, &ax, &val)) return asynError;
   }
@@ -352,6 +356,9 @@ SmarActMCSAxis::SmarActMCSAxis(class SmarActMCSController *cnt_p, int axis, int 
 		goto bail;
 	if ( (comStatus_ = getVal("GS", &val)) )
 		goto bail;
+
+	setIntegerParam(c_p_->autoZero_, 1);
+	setIntegerParam(c_p_->holdTime_, 0);
 
 	checkType();
 
@@ -430,7 +437,7 @@ int        ax;
 asynStatus
 SmarActMCSAxis::poll(bool *moving_p)
 {
-epicsInt64			   pos;
+epicsInt32			   pos;
 epicsInt32             val;
 epicsInt32             angle;
 int                    rev;
@@ -445,8 +452,7 @@ enum SmarActMCSStatus status;
 	else {
 		if ( (comStatus_ = getVal("GP", (int *)&pos)) )
 			goto bail;
-        }
-
+    }
 	setDoubleParam(c_p_->motorEncoderPosition_, (double)pos);
 	setDoubleParam(c_p_->motorPosition_, (double)pos);
 #ifdef DEBUG
@@ -563,7 +569,7 @@ int holdTime;
 const char *fmt_rot = relative ? ":MAR%u,%ld,%d,%d" : ":MAA%u,%ld,%d,%d";
 const char *fmt_lin = relative ? ":MPR%u,%ld,%d" : ":MPA%u,%ld,%d";
 const char *fmt;
-double rpos;
+long int rpos;
 epicsInt32 angle;
 int rev;
 
@@ -580,7 +586,7 @@ int rev;
 	if ( (comStatus_ = setSpeed(max_vel)) )
 		goto bail;
 
-	rpos = rint(position);
+	rpos = lround(position);
 	
 	c_p_->getIntegerParam(axisNo_, c_p_->holdTime_, &holdTime);
 
@@ -593,7 +599,7 @@ int rev;
 		}
 		comStatus_ = moveCmd(fmt, channel_, angle, rev, holdTime);
 	} else {
-		comStatus_ = moveCmd(fmt, channel_, (epicsInt32)rpos, holdTime);
+		comStatus_ = moveCmd(fmt, channel_, rpos, holdTime);
 	}
 
 bail:
