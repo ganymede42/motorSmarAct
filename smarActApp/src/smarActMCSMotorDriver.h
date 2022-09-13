@@ -84,7 +84,7 @@ friend class SmarActMCSController;
 class SmarActMCSController : public asynMotorController
 {
 public:
-	SmarActMCSController(const char *portName, const char *IOPortName, int numAxes, double movingPollPeriod, double idlePollPeriod);
+	SmarActMCSController(const char *portName, const char *IOPortName, int numAxes, double movingPollPeriod, double idlePollPeriod, int disableSpeed = 0);
 	virtual asynStatus sendCmd(size_t *got_p, char *rep, int len, double timeout, const char *fmt, va_list ap);
 	virtual asynStatus sendCmd(size_t *got_p, char *rep, int len, double timeout, const char *fmt, ...);
 	virtual asynStatus sendCmd(size_t *got_p, char *rep, int len, const char *fmt, ...);
@@ -100,6 +100,7 @@ protected:
 
 private:
 	asynUser *asynUserMot_p_;
+	int disableSpeed_;
 
   	int ptyp_; /**< positioner type */
 #define FIRST_MCS_PARAM ptyp_

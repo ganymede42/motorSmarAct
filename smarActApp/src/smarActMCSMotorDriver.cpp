@@ -152,7 +152,7 @@ char cmd[10];
 	return 'E' == cmd[0] ? *val_p : 0;
 }
 
-SmarActMCSController::SmarActMCSController(const char *portName, const char *IOPortName, int numAxes, double movingPollPeriod, double idlePollPeriod)
+SmarActMCSController::SmarActMCSController(const char *portName, const char *IOPortName, int numAxes, double movingPollPeriod, double idlePollPeriod, int disableSpeed)
 	: asynMotorController(portName, numAxes,
 	                      0, // parameters
 	                      0, // interface mask
@@ -167,6 +167,9 @@ char             junk[100];
 size_t           got_junk;
 int              eomReason;
 pAxes_ = (SmarActMCSAxis **)(asynMotorController::pAxes_);
+disableSpeed_ = disableSpeed;
+if (disableSpeed_)
+	epicsPrintf("SmarActMCSController(%s): WARNING - The speed set commands have been disabled for this controller\n", portName);
 
   	createParam(MCSPtypString, asynParamInt32, &this->ptyp_);
   	createParam(MCSPtypRbString, asynParamInt32, &this->ptyprb_);
@@ -348,7 +351,10 @@ SmarActMCSAxis::SmarActMCSAxis(class SmarActMCSController *cnt_p, int axis, int 
 
 	asynPrint(c_p_->pasynUserSelf, ASYN_TRACEIO_DRIVER, "SmarActMCSAxis::SmarActMCSAxis -- creating axis %u\n", axis);
 
-	comStatus_ = getVal("GCLS",&vel_);
+	if (c_p_->disableSpeed_)
+		comStatus_ = asynSuccess;
+	else
+		comStatus_ = getVal("GCLS",&vel_);
 #ifdef DEBUG
 	printf("GCLS %u returned %i\n", axis, comStatus_);
 #endif
@@ -552,6 +558,10 @@ SmarActMCSAxis::setSpeed(double velocity)
 epicsInt32 vel;
 asynStatus  status;
 
+	//ignore set speed commands if flag is set
+	if(c_p_->disableSpeed_)
+		return asynSuccess;
+
 	if ( (vel = (epicsInt32)rint(fabs(velocity))) != vel_ ) {
 		/* change speed */
 		if ( asynSuccess == (status = moveCmd(":SCLS%u,%ld", channel_, vel)) ) {
@@ -748,7 +758,8 @@ smarActMCSCreateController(
 	const char *ioPortName,
 	int         numAxes,
 	double      movingPollPeriod,
-	double      idlePollPeriod)
+	double      idlePollPeriod,
+	int	    disableSpeed)
 {
 void *rval = 0;
 	// the asyn stuff doesn't seem to be prepared for exceptions. I get segfaults
@@ -757,7 +768,7 @@ void *rval = 0;
 #ifdef ASYN_CANDO_EXCEPTIONS
 	try {
 #endif
-		rval = new SmarActMCSController(motorPortName, ioPortName, numAxes, movingPollPeriod, idlePollPeriod);
+		rval = new SmarActMCSController(motorPortName, ioPortName, numAxes, movingPollPeriod, idlePollPeriod, disableSpeed);
 #ifdef ASYN_CANDO_EXCEPTIONS
 	} catch (SmarActMCSException &e) {
 		epicsPrintf("smarActMCSCreateController failed (exception caught):\n%s\n", e.what());
@@ -775,7 +786,8 @@ static void cc_fn(const iocshArgBuf *args)
 		args[1].sval,
 		args[2].ival,
 		args[3].dval,
-		args[4].dval);
+		args[4].dval,
+		args[5].ival);
 }
 
 
