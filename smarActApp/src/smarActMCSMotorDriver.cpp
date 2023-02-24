@@ -747,8 +747,9 @@ static const iocshArg cc_a1 = {"I/O port name [string]",           iocshArgStrin
 static const iocshArg cc_a2 = {"Number of axes [int]",             iocshArgInt};
 static const iocshArg cc_a3 = {"Moving poll period (s) [double]",  iocshArgDouble};
 static const iocshArg cc_a4 = {"Idle poll period (s) [double]",    iocshArgDouble};
+static const iocshArg cc_a5 = {"Disable speed cmds [int]",         iocshArgInt};
 
-static const iocshArg * const cc_as[] = {&cc_a0, &cc_a1, &cc_a2, &cc_a3, &cc_a4};
+static const iocshArg * const cc_as[] = {&cc_a0, &cc_a1, &cc_a2, &cc_a3, &cc_a4, &cc_a5};
 
 static const iocshFuncDef cc_def = {"smarActMCSCreateController", sizeof(cc_as)/sizeof(cc_as[0]), cc_as};
 
