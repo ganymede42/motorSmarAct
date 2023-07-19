@@ -2,8 +2,10 @@ include /ioc/tools/driver.makefile
 
 MODULE = motorSmarAct
 
-EXCLUDE_VERSIONS = 3
-BUILDCLASSES = Linux WIN32
+#BUILDCLASSES = Linux
+ARCH_FILTER = RHEL7-x86_64
+EXCLUDE_VERSIONS = 3.14.12 #7.0.6
+#EPICS_VERSIONS=7.0.7
 
 SOURCES += smarActApp/src/smarActMCS2MotorDriver.cpp
 DBDS += smarActApp/src/devSmarActMCS2Motor.dbd
