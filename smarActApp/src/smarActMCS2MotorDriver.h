@@ -38,8 +38,6 @@ The two that may be of significant interest are:
  * If this scaling was not implemented the maximum range would be ~2.147 mm/deg, now it's ~2147 mm/deg */
 #define PULSES_PER_STEP 1000
 
-typedef long long PositionType;
-
 /** MCS2 Axis status flags **/
 const unsigned short ACTIVELY_MOVING = 0x0001;
 const unsigned short CLOSED_LOOP_ACTIVE = 0x0002;
@@ -67,15 +65,14 @@ const unsigned short STOP_ON_REF_FOUND = 0x0020;
 
 /** MCS2 Axis constants **/
 #define HOLD_FOREVER 0xffffffff
-#define MAX_FREQUENCY 20000
 
 /** drvInfo strings for extra parameters that the MCS2 controller supports */
 #define MCS2MclfString "MCLF"
 #define MCS2PtypString "PTYP"
 #define MCS2PtypRbString "PTYP_RB"
 #define MCS2PstatString "PSTAT"
-#define MCS2RefString "REF"
 #define MCS2CalString "CAL"
+#define MCS2HoldString "HOLD"
 
 class epicsShareClass MCS2Axis : public asynMotorAxis
 {
@@ -93,9 +90,6 @@ private:
   MCS2Controller *pC_; /**< Pointer to the asynMotorController to which this axis belongs.
                         *   Abbreviated because it is used very frequently */
   int channel_;
-  int sensorPresent_;
-  PositionType stepTarget_ = 0;
-  asynStatus comStatus_;
 
   friend class MCS2Controller;
 };
@@ -120,8 +114,8 @@ protected:
   int ptyp_;    /**< positioner type */
   int ptyprb_;  /**< positioner type readback */
   int pstatrb_; /**< positoner status word readback */
-  int ref_;     /**< reference command */
   int cal_;     /**< calibration command */
+  int hold_;     /**< hold time */
 #define LAST_MCS2_PARAM cal_
 #define NUM_MCS2_PARAMS (&LAST_MCS2_PARAM - &FIRST_MCS2_PARAM + 1)
 
