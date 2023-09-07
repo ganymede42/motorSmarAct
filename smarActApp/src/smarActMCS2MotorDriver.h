@@ -8,14 +8,14 @@ Jan 19, 2019
 
 Note:
 The MCS2 controller uses 64-bit int for the encoder and target positions. The motor record is limited
-to 32 bit int for RMP (https://github.com/epics-modules/motor/issues/8, 
+to 32 bit int for RMP (https://github.com/epics-modules/motor/issues/8,
 https://epics.anl.gov/tech-talk/2018/msg00087.php) which effectively limits the travel
-range to +/- 2.1mm. 
+range to +/- 2.1mm.
 Since it doesn't seem the motor record will update to using 64bit int the choices I can see are:
 * 1 - using a non-standard motor support
 * 2 - rescaling the minimum resolution to 1nm to effectively increase the range to 2.1m
 
-I chose option 2. 
+I chose option 2.
 1 step = 1nm
 
 Someone with more experience may have a better solution.
@@ -41,29 +41,29 @@ The two that may be of significant interest are:
 typedef long long PositionType;
 
 /** MCS2 Axis status flags **/
-const unsigned short ACTIVELY_MOVING         = 0x0001;
-const unsigned short CLOSED_LOOP_ACTIVE      = 0x0002;
-const unsigned short CALIBRATING             = 0x0004;
-const unsigned short REFERENCING             = 0x0008;
-const unsigned short MOVE_DELAYED            = 0x0010;
-const unsigned short SENSOR_PRESENT          = 0x0020;
-const unsigned short IS_CALIBRATED           = 0x0040;
-const unsigned short IS_REFERENCED           = 0x0080;
-const unsigned short END_STOP_REACHED        = 0x0100;
-const unsigned short RANGE_LIMIT_REACHED     = 0x0200;
+const unsigned short ACTIVELY_MOVING = 0x0001;
+const unsigned short CLOSED_LOOP_ACTIVE = 0x0002;
+const unsigned short CALIBRATING = 0x0004;
+const unsigned short REFERENCING = 0x0008;
+const unsigned short MOVE_DELAYED = 0x0010;
+const unsigned short SENSOR_PRESENT = 0x0020;
+const unsigned short IS_CALIBRATED = 0x0040;
+const unsigned short IS_REFERENCED = 0x0080;
+const unsigned short END_STOP_REACHED = 0x0100;
+const unsigned short RANGE_LIMIT_REACHED = 0x0200;
 const unsigned short FOLLOWING_LIMIT_REACHED = 0x0400;
-const unsigned short MOVEMENT_FAILED         = 0x0800;
-const unsigned short STREAMING               = 0x1000;
-const unsigned short OVERTEMP                = 0x4000;
-const unsigned short REFERENCE_MARK          = 0x8000;
+const unsigned short MOVEMENT_FAILED = 0x0800;
+const unsigned short STREAMING = 0x1000;
+const unsigned short OVERTEMP = 0x4000;
+const unsigned short REFERENCE_MARK = 0x8000;
 
 /** MCS2 Axis reference options **/
-const unsigned short   START_DIRECTION         = 0x0001;
-const unsigned short   REVERSE_DIRECTION       = 0x0002;
-const unsigned short   AUTO_ZERO               = 0x0004;
-const unsigned short   ABORT_ON_END_STOP       = 0x0008;
-const unsigned short   CONTINUE_ON_REF_FOUND   = 0x0010;
-const unsigned short   STOP_ON_REF_FOUND       = 0x0020;
+const unsigned short START_DIRECTION = 0x0001;
+const unsigned short REVERSE_DIRECTION = 0x0002;
+const unsigned short AUTO_ZERO = 0x0004;
+const unsigned short ABORT_ON_END_STOP = 0x0008;
+const unsigned short CONTINUE_ON_REF_FOUND = 0x0010;
+const unsigned short STOP_ON_REF_FOUND = 0x0020;
 
 /** MCS2 Axis constants **/
 #define HOLD_FOREVER 0xffffffff
@@ -90,17 +90,18 @@ public:
   asynStatus setPosition(double position);
 
 private:
-  MCS2Controller *pC_;      /**< Pointer to the asynMotorController to which this axis belongs.
-                                *   Abbreviated because it is used very frequently */
+  MCS2Controller *pC_; /**< Pointer to the asynMotorController to which this axis belongs.
+                        *   Abbreviated because it is used very frequently */
   int channel_;
   int sensorPresent_;
   PositionType stepTarget_ = 0;
   asynStatus comStatus_;
 
-friend class MCS2Controller;
+  friend class MCS2Controller;
 };
 
-class epicsShareClass MCS2Controller : public asynMotorController {
+class epicsShareClass MCS2Controller : public asynMotorController
+{
 public:
   MCS2Controller(const char *portName, const char *MCS2PortName, int numAxes, double movingPollPeriod, double idlePollPeriod, int unusedMask = 0);
   virtual asynStatus clearErrors();
@@ -110,20 +111,19 @@ public:
 
   /* These are the methods that we override from asynMotorDriver */
   void report(FILE *fp, int level);
-  MCS2Axis* getAxis(asynUser *pasynUser);
-  MCS2Axis* getAxis(int axisNo);
+  MCS2Axis *getAxis(asynUser *pasynUser);
+  MCS2Axis *getAxis(int axisNo);
 
 protected:
   int mclf_; /**< MCL frequency */
 #define FIRST_MCS2_PARAM mclf_
-  int ptyp_; /**< positioner type */
-  int ptyprb_; /**< positioner type readback */
+  int ptyp_;    /**< positioner type */
+  int ptyprb_;  /**< positioner type readback */
   int pstatrb_; /**< positoner status word readback */
-  int ref_;  /**< reference command */ 
-  int cal_;  /**< calibration command */
+  int ref_;     /**< reference command */
+  int cal_;     /**< calibration command */
 #define LAST_MCS2_PARAM cal_
 #define NUM_MCS2_PARAMS (&LAST_MCS2_PARAM - &FIRST_MCS2_PARAM + 1)
-  
-friend class MCS2Axis;
-};
 
+  friend class MCS2Axis;
+};
