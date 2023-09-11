@@ -23,6 +23,12 @@ Jan 19, 2019
 #include <epicsExport.h>
 #include "smarActMCS2MotorDriver.h"
 
+#ifdef DEBUG
+  #define DBG_PRINTF(...) printf(__VA_ARGS__)
+#else
+  #define DBG_PRINTF(...)
+#endif
+
 static const char *driverName = "SmarActMCS2MotorDriver";
 
 /** Creates a new MCS2Controller object.
@@ -46,13 +52,12 @@ MCS2Controller::MCS2Controller(const char *portName, const char *MCS2PortName, i
   asynPrint(this->pasynUserSelf, ASYN_TRACEIO_DRIVER, "MCS2Controller::MCS2Controller: Creating controller\n");
 
   // Create controller-specific parameters
-  createParam(MCS2MclfString, asynParamInt32, &this->mclf_);
   createParam(MCS2PtypString, asynParamInt32, &this->ptyp_);
   createParam(MCS2PtypRbString, asynParamInt32, &this->ptyprb_);
   createParam(MCS2PstatString, asynParamInt32, &this->pstatrb_); // whole positioner status word
-  createParam(MCS2CalString, asynParamInt32, &this->cal_);
+  createParam(MCS2MclfString, asynParamInt32, &this->mclf_);
   createParam(MCS2HoldString, asynParamInt32, &this->hold_);
-
+  createParam(MCS2CalString, asynParamInt32, &this->cal_);
 
   // Connect to MCS2 controller
   status = pasynOctetSyncIO->connect(MCS2PortName, 0, &pasynUserController_, NULL);
@@ -215,14 +220,14 @@ asynStatus MCS2Controller::writeInt32(asynUser *pasynUser, epicsInt32 value)
    * status at the end, but that's OK */
   status = setIntegerParam(pAxis->axisNo_, function, value);
 
-  if (function == mclf_) {
-    // set piezo MaxClockFreq
-    sprintf(pAxis->pC_->outString_, ":CHAN%d:MCLF:CURR %d", pAxis->axisNo_, value);
-    status = pAxis->pC_->writeController();
-  }
-  else if (function == ptyp_) {
+  if (function == ptyp_) {
     // set positioner type
     sprintf(pAxis->pC_->outString_, ":CHAN%d:PTYP %d", pAxis->axisNo_, value);
+    status = pAxis->pC_->writeController();
+  }
+  else if (function == mclf_) {
+    // set piezo MaxClockFreq
+    sprintf(pAxis->pC_->outString_, ":CHAN%d:MCLF:CURR %d", pAxis->axisNo_, value);
     status = pAxis->pC_->writeController();
   }
   else if (function == cal_) {
@@ -356,7 +361,9 @@ asynStatus MCS2Axis::move(double position, int relative, double minVelocity, dou
 
   if(hasEnc)
   {
-    printf("MCS2Axis::move closeloop: position: %g rel: %d\n",position,relative);
+   printf("MCS2Axis::move: closeloop: position: %g rel: %d\n",position,relative);
+
+    DBG_PRINTF("MCS2Axis::move: closeloop: position: %g rel: %d\n",position,relative);
     sprintf(pC_->outString_, ":CHAN%d:MMOD %d", channel_, relative > 0 ? 1 : 0);
     status = pC_->writeController();
   // Set acceleration
@@ -377,7 +384,7 @@ asynStatus MCS2Axis::move(double position, int relative, double minVelocity, dou
     if(!relative)
       position=position-curPos;
     curPos+=position;
-    printf("MCS2Axis::move openloop: new_pos: %g rel_move: %g\n",curPos,position);
+    DBG_PRINTF("MCS2Axis::move: openloop: new_pos: %g rel_move: %g\n",curPos,position);
     //:STEP:FREQuency 1..20000, default:1000 Hz.
     //:STEP:AMPLitude 1..65535, default:65535 (100 V).
     setDoubleParam(pC_->motorEncoderPosition_, curPos);
@@ -385,8 +392,10 @@ asynStatus MCS2Axis::move(double position, int relative, double minVelocity, dou
 
     sprintf(pC_->outString_, ":CHAN%d:MMOD %d", channel_, 4);
     status = pC_->writeController();
-    sprintf(pC_->outString_, ":MOVE%d %f", channel_, position * PULSES_PER_STEP);
+    DBG_PRINTF("MCS2Axis::move: %s ->status:%d\n",pC_->outString_,status);
+    sprintf(pC_->outString_, ":MOVE%d %f", channel_, position);
     status = pC_->writeController();
+    DBG_PRINTF("MCS2Axis::move: %s ->status:%d\n",pC_->outString_,status);
   }
   return status;
 }
@@ -403,7 +412,7 @@ asynStatus MCS2Axis::home(double minVelocity, double maxVelocity, double acceler
 
   // Set default reference options - direction and autozero
   sprintf(pC_->outString_, ":CHAN%d:REF:OPT %d", channel_, refOpt);
-  printf("MCS2Axis::home: %s",pC_->outString_);
+  DBG_PRINTF("MCS2Axis::home: %s",pC_->outString_);
 
   status = pC_->writeController();
   pC_->clearErrors();
@@ -438,7 +447,7 @@ asynStatus MCS2Axis::setPosition(double position)
   asynStatus status = asynSuccess;
 
   sprintf(pC_->outString_, ":CHAN%d:POS %f", channel_, position * PULSES_PER_STEP);
-  printf("MCS2Axis::setPosition: %s",pC_->outString_);
+  DBG_PRINTF("MCS2Axis::setPosition: %s",pC_->outString_);
   status = pC_->writeController();
   return status;
 }
