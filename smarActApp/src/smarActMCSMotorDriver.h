@@ -40,14 +40,13 @@ public:
 protected:
   //own methods
   void checkType();
-  asynStatus getVal(const char *parm, int *val_p);
-  asynStatus getAngle(int *val_p, int *rev_p);
-  asynStatus moveCmd(const char *cmd, ...);
+  asynStatus getVal(const char *parm, int *val);
+  asynStatus getAngle(int *val);
   int getVel() const { return vel_; }
   asynStatus setSpeed(double velocity);
 
 private:
-  SmarActMCSController *c_p_; // pointer to asynMotorController for this axis
+  SmarActMCSController *pC_; // pointer to asynMotorController for this axis
   epicsInt32 vel_;
   int channel_;
   enum DevType {DT_NO_SENSOR, DT_LIN, DT_ROT};
@@ -60,23 +59,19 @@ class SmarActMCSController : public asynMotorController
 {
 public:
   SmarActMCSController(const char *portName, const char *IOPortName, int numAxes, double movingPollPeriod, double idlePollPeriod, int disableSpeed = 0);
-  virtual asynStatus sendCmd4(size_t *got_p, char *rep, int len, double timeout, const char *fmt, va_list ap);
-  virtual asynStatus sendCmd3(size_t *got_p, char *rep, int len, double timeout, const char *fmt, ...);
-  virtual asynStatus sendCmd2(size_t *got_p, char *rep, int len, const char *fmt, ...);
-  virtual asynStatus sendCmd1(char *rep, int len, const char *fmt, ...);
 
-  static int parseReply(const char *reply, int *ax_p, int *val_p);
-  static int parseAngle(const char *reply, int *ax_p, int *val_p, int *rot_p);
+  asynStatus cmdWriteRead(bool dbg,const char *fmt, ...);
+  int parse2Val(int *val1,int *val2);
+  int parse3Val(int *val1,int *val2,int *val3);
 
   /* These are the methods that we override from asynMotorDriver */
-  asynStatus writeInt32(asynUser *pasynUser, epicsInt32 value);
+  asynStatus writeInt32(asynUser *asynUser, epicsInt32 value);
 
 protected:
   SmarActMCSAxis **pAxes_;
 
 private:
-  asynUser *asynUserMot_p_;
-  int disableSpeed_;
+  asynUser *pAsynUserMot_;
 
   int ptyp_; /**< positioner type */
 #define FIRST_MCS_PARAM ptyp_
