@@ -23,6 +23,7 @@
 #define MCSSclfString "MCLF"
 #define MCSCalString "CAL"
 
+extern "C" void smarActMCSExtra(int argc, char **argv); //forward declaration for 'friend'
 
 class SmarActMCSAxis : public asynMotorAxis
 {
@@ -40,18 +41,18 @@ public:
 protected:
   //own methods
   void checkType();
-  asynStatus getVal(const char *parm, int *val);
-  asynStatus getAngle(int *val);
-  int getVel() const { return vel_; }
+  asynStatus getVal(bool dbg, const char *parm, int *val);
+  asynStatus getAngle(bool dbg, int *val);
   asynStatus setSpeed(double velocity);
 
 private:
   SmarActMCSController *pC_; // pointer to asynMotorController for this axis
+  int dbgLvl_;
   epicsInt32 vel_;
-  int channel_;
   enum DevType {DT_NO_SENSOR, DT_LIN, DT_ROT};
   enum DevType devType_;
   friend class SmarActMCSController;
+  friend void smarActMCSExtra(int argc, char **argv);
 };
 
 
@@ -84,6 +85,7 @@ private:
 #define NUM_MCS_PARAMS (&LAST_MCS_PARAM - &FIRST_MCS_PARAM + 1)
 
   friend class SmarActMCSAxis;
+  friend void smarActMCSExtra(int argc, char **argv);
 };
 
 #endif // _cplusplus
