@@ -61,12 +61,14 @@ class MCSController : public asynMotorController
 public:
   MCSController(const char *portName, const char *IOPortName, int numAxes, double movingPollPeriod, double idlePollPeriod, int dbgLvl);
 
+  // functions override from asynMotorDriver
+  asynStatus writeInt32(asynUser *asynUser, epicsInt32 value);
+
+  // own member functions
   asynStatus cmdWriteRead(bool dbg,const char *fmt, ...);
   int parse2Val(int *val1,int *val2);
   int parse3Val(int *val1,int *val2,int *val3);
 
-  // These are the methods that we override from asynMotorDriver
-  asynStatus writeInt32(asynUser *asynUser, epicsInt32 value);
 
 protected:
   MCSAxis **pAxes_;

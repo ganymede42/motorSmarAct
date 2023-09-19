@@ -97,13 +97,17 @@ class MCS2Controller : public asynMotorController
 {
 public:
   MCS2Controller(const char *portName, const char *MCS2PortName, int numAxes, double movingPollPeriod, double idlePollPeriod, int dbgLvl);
-  asynStatus clearErrors();
-  // These are the methods that we override from asynMotorDriver
+  // functions override from asynMotorDriver
   asynStatus writeInt32(asynUser *pasynUser, epicsInt32 value);
   // These are the methods that we override from asynMotorDriver
   void report(FILE *fp, int level);
   MCS2Axis *getAxis(asynUser *pasynUser);
   MCS2Axis *getAxis(int axisNo);
+
+  // own member functions
+  asynStatus clearErrors();
+  asynStatus cmdWrite(bool dbg,const char *fmt, ...);
+  asynStatus cmdWriteRead(bool dbg,const char *fmt, ...);
 
 protected:
   int ptyp_;    // positioner type

@@ -190,6 +190,37 @@ MCS2Axis *MCS2Controller::getAxis(int axisNo)
   return static_cast<MCS2Axis *>(asynMotorController::getAxis(axisNo));
 }
 
+//formatted write string to member outString_
+//if dbg !=0 the strings are printed to the console
+asynStatus MCS2Controller::cmdWrite(bool dbg,const char *fmt, ...)
+{
+  asynStatus ast;
+  va_list ap;
+  va_start(ap, fmt);
+  epicsVsnprintf(outString_, sizeof(outString_), fmt, ap);
+  va_end(ap);
+  DBG_PRINTF(dbg,"MCS2Controller::cmdWrite: %s\n",outString_);
+  ast = this->writeController();
+  return ast;
+}
+//formatted write string to member outString_
+//reads returned string in outString_
+//if dbg !=0 the strings are printed to the console
+asynStatus MCS2Controller::cmdWriteRead(bool dbg,const char *fmt, ...)
+{
+  asynStatus ast;
+  va_list ap;
+  va_start(ap, fmt);
+  epicsVsnprintf(outString_, sizeof(outString_), fmt, ap);
+  va_end(ap);
+  DBG_PRINTF(dbg,"MCS2Controller::cmdWriteRead: %s -> ",outString_);
+  ast = this->writeReadController();
+#ifdef DEBUG
+  if(dbg) puts(inString_);
+#endif
+  return ast;
+}
+
 /** Called when asyn clients call pasynInt32->write().
  * Extracts the function and axis number from pasynUser.
  * Sets the value in the parameter library.
@@ -200,7 +231,7 @@ MCS2Axis *MCS2Controller::getAxis(int axisNo)
 asynStatus MCS2Controller::writeInt32(asynUser *pasynUser, epicsInt32 value)
 {
   int function = pasynUser->reason;
-  asynStatus status = asynSuccess;
+  asynStatus ast = asynSuccess;
   MCS2Axis *pAxis = getAxis(pasynUser);
 
   // Check if axis exists
@@ -208,41 +239,36 @@ asynStatus MCS2Controller::writeInt32(asynUser *pasynUser, epicsInt32 value)
 
   /* Set the parameter and readback in the parameter library.  This may be overwritten when we read back the
    * status at the end, but that's OK */
-  status = setIntegerParam(pAxis->axisNo_, function, value);
+  ast = setIntegerParam(pAxis->axisNo_, function, value);
 
   if (function == ptyp_) {
     // set positioner type
-    sprintf(pAxis->pC_->outString_, ":CHAN%d:PTYP %d", pAxis->axisNo_, value);
-    status = pAxis->pC_->writeController();
+    ast=cmdWrite(1, ":CHAN%d:PTYP %d", pAxis->axisNo_, value);
   }
   else if (function == mclf_) {
     // set piezo MaxClockFreq
-    sprintf(pAxis->pC_->outString_, ":CHAN%d:MCLF:CURR %d", pAxis->axisNo_, value);
-    status = pAxis->pC_->writeController();
+    ast=cmdWrite(1, ":CHAN%d:MCLF:CURR %d", pAxis->axisNo_, value);
   }
   else if (function == cal_) {
     // send calibration command
-    sprintf(pAxis->pC_->outString_, ":CAL%d", pAxis->axisNo_);
-    status = pAxis->pC_->writeController();
+    ast=cmdWrite(1, ":CAL%d", pAxis->axisNo_);
   }
   else if (function == hold_) {
     // set holding time
-    sprintf(pAxis->pC_->outString_, ":CHAN%d:HOLD %d", pAxis->axisNo_, value);
-    puts(pAxis->pC_->outString_);
-    status = pAxis->pC_->writeController();
+    ast=cmdWrite(1, ":CHAN%d:HOLD %d", pAxis->axisNo_, value);
   }
   else {
     // Call base class method
-    status = asynMotorController::writeInt32(pasynUser, value);
+    ast = asynMotorController::writeInt32(pasynUser, value);
   }
 
   // Do callbacks so higher layers see any changes
   callParamCallbacks(pAxis->axisNo_);
-  if (status)
-    asynPrint(pasynUser, ASYN_TRACE_ERROR, "MCS2Controller::writeInt32: error, status=%d function=%d, value=%d\n", status, function, value);
+  if (ast)
+    asynPrint(pasynUser, ASYN_TRACE_ERROR, "MCS2Controller::writeInt32: error, status=%d function=%d, value=%d\n", ast, function, value);
   else
     asynPrint(pasynUser, ASYN_TRACEIO_DRIVER, "MCS2Controller::writeInt32: function=%d, value=%d\n", function, value);
-  return status;
+  return ast;
 }
 
 // These are the MCS2Axis methods
@@ -336,7 +362,7 @@ void MCS2Axis::report(FILE *fp, int level)
 
 asynStatus MCS2Axis::move(double position, int relative, double minVelocity, double maxVelocity, double acceleration)
 {
-  asynStatus status = asynSuccess;
+  asynStatus ast = asynSuccess;
 
   // MCS2 MMOD (move mode) values:
   // 0: absolute (close loop)
@@ -347,17 +373,13 @@ asynStatus MCS2Axis::move(double position, int relative, double minVelocity, dou
   if(hasEnc)
   {
     DBG_PRINTF(1,"MCS2Axis::move: closeloop: position: %g rel: %d\n",position,relative);
-    sprintf(pC_->outString_, ":CHAN%d:MMOD %d", axisNo_, relative > 0 ? 1 : 0);
-    status = pC_->writeController();
+    ast=pC_->cmdWrite(1, ":CHAN%d:MMOD %d", axisNo_, relative > 0 ? 1 : 0);
     // Set acceleration
-    sprintf(pC_->outString_, ":CHAN%d:ACC %f", axisNo_, acceleration * PULSES_PER_STEP);
-    status = pC_->writeController();
+    ast=pC_->cmdWrite(1, ":CHAN%d:ACC %f", axisNo_, acceleration * PULSES_PER_STEP);
     // Set velocity
-    sprintf(pC_->outString_, ":CHAN%d:VEL %f", axisNo_, maxVelocity * PULSES_PER_STEP);
-    status = pC_->writeController();
+    ast=pC_->cmdWrite(1, ":CHAN%d:VEL %f", axisNo_, maxVelocity * PULSES_PER_STEP);
     // Do move
-    sprintf(pC_->outString_, ":MOVE%d %f", axisNo_, position * PULSES_PER_STEP);
-    status = pC_->writeController();
+    ast=pC_->cmdWrite(1, ":MOVE%d %f", axisNo_, position * PULSES_PER_STEP);
   }
   else
   { // move relative in open loop
@@ -373,66 +395,47 @@ asynStatus MCS2Axis::move(double position, int relative, double minVelocity, dou
     setDoubleParam(pC_->motorEncoderPosition_, curPos);
     setDoubleParam(pC_->motorPosition_, curPos);
 
-    sprintf(pC_->outString_, ":CHAN%d:MMOD %d", axisNo_, 4);
-    status = pC_->writeController();
-    DBG_PRINTF(1,"MCS2Axis::move: %s ->status:%d\n",pC_->outString_,status);
-    sprintf(pC_->outString_, ":MOVE%d %f", axisNo_, position);
-    status = pC_->writeController();
-    DBG_PRINTF(1,"MCS2Axis::move: %s ->status:%d\n",pC_->outString_,status);
+    ast=pC_->cmdWrite(1, ":CHAN%d:MMOD %d", axisNo_, 4);
+    ast=pC_->cmdWrite(1, ":MOVE%d %f", axisNo_, position);
   }
-  return status;
+  return ast;
 }
 
 asynStatus MCS2Axis::home(double minVelocity, double maxVelocity, double acceleration, int forwards)
 {
-  asynStatus status = asynSuccess;
+  asynStatus ast;
   unsigned short refOpt = 0;
-
   if (forwards==0){
     refOpt |= START_DIRECTION;
   }
   refOpt |= AUTO_ZERO;
-
   // Set default reference options - direction and autozero
-  sprintf(pC_->outString_, ":CHAN%d:REF:OPT %d", axisNo_, refOpt);
-  DBG_PRINTF(1,"MCS2Axis::home: %s",pC_->outString_);
-
-  status = pC_->writeController();
-  pC_->clearErrors();
+  ast=pC_->cmdWrite(1, ":CHAN%d:REF:OPT %d", axisNo_, refOpt);
   // Set acceleration
-  sprintf(pC_->outString_, ":CHAN%d:ACC %f", axisNo_, acceleration * PULSES_PER_STEP);
-  status = pC_->writeController();
-  pC_->clearErrors();
+  ast=pC_->cmdWrite(1, ":CHAN%d:ACC %f", axisNo_, acceleration * PULSES_PER_STEP);
   // Set velocity
-  sprintf(pC_->outString_, ":CHAN%d:VEL %f", axisNo_, maxVelocity * PULSES_PER_STEP);
-  status = pC_->writeController();
-  pC_->clearErrors();
+  ast=pC_->cmdWrite(1, ":CHAN%d:VEL %f", axisNo_, maxVelocity * PULSES_PER_STEP);
   // Begin move
-  sprintf(pC_->outString_, ":REF%d", axisNo_);
-  status = pC_->writeController();
+  ast=pC_->cmdWrite(1, ":REF%d", axisNo_);
   pC_->clearErrors();
-
-  return status;
+  return ast;
 }
 
 asynStatus MCS2Axis::stop(double acceleration)
 {
-  asynStatus status;
-
-  sprintf(pC_->outString_, ":STOP%d", axisNo_);
-  status = pC_->writeController();
-
-  return status;
+  asynStatus ast;
+  DBG_PRINTF(dbgLvl_&0x02,"MCSAxis::stop@%u()\n",axisNo_);
+  ast=pC_->cmdWrite(1, ":STOP%d", axisNo_);
+  return ast;
 }
 
 asynStatus MCS2Axis::setPosition(double position)
 {
-  asynStatus status = asynSuccess;
-
-  sprintf(pC_->outString_, ":CHAN%d:POS %f", axisNo_, position * PULSES_PER_STEP);
-  DBG_PRINTF(1,"MCS2Axis::setPosition: %s",pC_->outString_);
-  status = pC_->writeController();
-  return status;
+  asynStatus ast;
+  DBG_PRINTF(1,"MCS2Axis::setPosition@%u(%.12g)",axisNo_,position);
+  ast=pC_->cmdWrite(1, ":CHAN%d:POS %f", axisNo_, position * PULSES_PER_STEP);
+  ast = pC_->writeController();
+  return ast;
 }
 
 /** Polls the axis.
@@ -550,22 +553,36 @@ skip:
   return comStatus ? asynError : asynSuccess;
 }
 
+//------------------------------------------------------------------
+
 // Code for iocsh registration
-static const iocshArg MCS2CreateControllerArg0 = {"Port name", iocshArgString};
-static const iocshArg MCS2CreateControllerArg1 = {"MCS2 port name", iocshArgString};
-static const iocshArg MCS2CreateControllerArg2 = {"Number of axes", iocshArgInt};
-static const iocshArg MCS2CreateControllerArg3 = {"Moving poll period (ms)", iocshArgInt};
-static const iocshArg MCS2CreateControllerArg4 = {"Idle poll period (ms)", iocshArgInt};
-static const iocshArg MCS2CreateControllerArg5 = {"debug level", iocshArgInt};
-static const iocshArg *const MCS2CreateControllerArgs[] = {&MCS2CreateControllerArg0, &MCS2CreateControllerArg1, &MCS2CreateControllerArg2,
-                                                           &MCS2CreateControllerArg3, &MCS2CreateControllerArg4, &MCS2CreateControllerArg5};
-static const iocshFuncDef MCS2CreateControllerDef = {"MCS2CreateController", 6, MCS2CreateControllerArgs};
-static void MCS2CreateContollerCallFunc(const iocshArgBuf *args)
+static const iocshArg MCS2CreateControllerArgLst[] = {
+  {"Port name",               iocshArgString},
+  {"MCS2 port name",          iocshArgString},
+  {"Number of axes",          iocshArgInt},
+  {"Moving poll period (ms)", iocshArgInt},
+  {"Idle poll period (ms)",   iocshArgInt},
+  {"debug level",             iocshArgInt},
+};
+#define ARG MCS2CreateControllerArgLst
+static const iocshArg *const MCS2CreateControllerArgs[] = {&ARG[0], &ARG[1], &ARG[2], &ARG[3], &ARG[4], &ARG[5]};
+static const iocshFuncDef MCS2CreateControllerDef = {"MCS2CreateController", _countof(MCS2CreateControllerArgs), MCS2CreateControllerArgs};
+#undef ARG
+static void MCS2CreateContollerFunc(const iocshArgBuf *args)
 {
-  MCS2CreateController(args[0].sval, args[1].sval, args[2].ival, args[3].ival, args[4].ival, args[5].ival);
+  assert(MCS2CreateController(args[0].sval, args[1].sval, args[2].ival, args[3].ival, args[4].ival, args[5].ival));
 }
 
-extern "C" void MCS2Extra(int argc, char **argv)
+// Code for iocsh registration
+static const iocshArg     MCS2ExtraArg0= {"<variable arguments> (type 'MCS2Extra' for usage)", iocshArgArgv};
+static const iocshArg    *MCS2ExtraArgs[] = {&MCS2ExtraArg0};
+static const iocshFuncDef MCS2ExtraDef = {"MCS2Extra", 1, MCS2ExtraArgs};
+void MCS2Extra(int argc, char **argv);
+static void MCS2ExtraFunc(const iocshArgBuf *args) {
+  MCS2Extra(args[0].aval.ac, args[0].aval.av);
+}
+
+void MCS2Extra(int argc, char **argv)
 {
   const char* usage[]={
          "MCS2Extra report <ASYNPORT>",
@@ -635,20 +652,11 @@ extern "C" void MCS2Extra(int argc, char **argv)
   }
 }
 
-// Information needed by iocsh
-static const iocshArg     MCS2ExtraArg0= {"[report|setAxisDbgLvl] <variable arguments>", iocshArgArgv};
-static const iocshArg    *MCS2ExtraArgs[] = {&MCS2ExtraArg0};
-static const iocshFuncDef MCS2ExtraFuncDef = {"MCS2Extra", 1, MCS2ExtraArgs};
-
-// Wrapper called by iocsh, selects the argument types that MCS2Extra needs
-static void MCS2ExtraCallFunc(const iocshArgBuf *args) {
-  MCS2Extra(args[0].aval.ac, args[0].aval.av);
-}
 
 static void MCS2MotorRegister(void)
 {
-  iocshRegister(&MCS2CreateControllerDef, MCS2CreateContollerCallFunc);
-  iocshRegister(&MCS2ExtraFuncDef, MCS2ExtraCallFunc);
+  iocshRegister(&MCS2CreateControllerDef, MCS2CreateContollerFunc);
+  iocshRegister(&MCS2ExtraDef, MCS2ExtraFunc);
 }
 
 extern "C" {

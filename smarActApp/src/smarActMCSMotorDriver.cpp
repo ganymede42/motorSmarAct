@@ -555,84 +555,35 @@ asynStatus MCSController::writeInt32(asynUser *pasynUser, epicsInt32 value)
 
 //------------------------------------------------------------------
 
-// iocsh wrapping and registration business (stolen from ACRMotorDriver.cpp)
-static const iocshArg cc_a0 = {"Port name [string]", iocshArgString};
-static const iocshArg cc_a1 = {"I/O port name [string]", iocshArgString};
-static const iocshArg cc_a2 = {"Number of axes [int]", iocshArgInt};
-static const iocshArg cc_a3 = {"Moving poll period (s) [double]", iocshArgDouble};
-static const iocshArg cc_a4 = {"Idle poll period (s) [double]", iocshArgDouble};
-static const iocshArg cc_a5 = {"Disable speed cmds [int]", iocshArgInt};
+// Code for iocsh registration
+static const iocshArg MCSCreateControllerArgLst[] = {
+  {"asyn port name",          iocshArgString},
+  {"MCS port name",           iocshArgString},
+  {"Number of axes",          iocshArgInt},
+  {"Moving poll period (ms)", iocshArgInt},
+  {"Idle poll period (ms)",   iocshArgInt},
+  {"debug level",             iocshArgInt},
+};
+#define ARG MCSCreateControllerArgLst
+static const iocshArg *const MCSCreateControllerArgs[] = {&ARG[0], &ARG[1], &ARG[2], &ARG[3], &ARG[4], &ARG[5]};
+#undef ARG
+static const iocshFuncDef MCSCreateControllerFuncDef = {"MCSCreateController", _countof(MCSCreateControllerArgs), MCSCreateControllerArgs};
 
-static const iocshArg *const cc_as[] = {&cc_a0, &cc_a1, &cc_a2, &cc_a3, &cc_a4, &cc_a5};
-
-static const iocshFuncDef cc_def = {"MCSCreateController", sizeof(cc_as) / sizeof(cc_as[0]), cc_as};
-
-extern "C" void *
-MCSCreateController( const char *motorPortName, const char *ioPortName, int numAxes, double movingPollPeriod, double idlePollPeriod, int disableSpeed)
+static void MCSCreateControllerFunc(const iocshArgBuf *args)
 {
-  void *rval = 0;
-  // the asyn stuff doesn't seem to be prepared for exceptions. I get segfaults
-  // if constructing a controller (or axis) incurs an exception even if its
-  // caught (IMHO asyn should behave as if the controller/axis never existed...)
-  rval = new MCSController(motorPortName, ioPortName, numAxes, movingPollPeriod, idlePollPeriod, disableSpeed);
-  return rval;
+  assert(new MCSController(args[0].sval, args[1].sval, args[2].ival, args[3].dval, args[4].dval, args[5].ival));
 }
 
-static void cc_fn(const iocshArgBuf *args)
-{
-  MCSCreateController( args[0].sval, args[1].sval, args[2].ival, args[3].dval, args[4].dval, args[5].ival);
+// Code for iocsh registration
+static const iocshArg     MCSExtraArg0= {"<variable arguments>", iocshArgArgv};
+static const iocshArg    *MCSExtraArgs[] = {&MCSExtraArg0};
+static const iocshFuncDef MCSExtraDef = {"MCSExtra", 1, MCSExtraArgs};
+void MCSExtra(int argc, char **argv);
+static void MCSExtraFunc(const iocshArgBuf *args) {
+  MCSExtra(args[0].aval.ac, args[0].aval.av);
 }
 
-static const iocshArg ca_a0 = {"Controller Port name [string]", iocshArgString};
-static const iocshArg ca_a1 = {"Axis number [int]", iocshArgInt};
-static const iocshArg ca_a2 = {"dbgLvl [int]", iocshArgInt};
-
-static const iocshArg *const ca_as[] = {&ca_a0, &ca_a1, &ca_a2};
-
-/* iocsh wrapping and registration business (stolen from ACRMotorDriver.cpp) */
-/* smarActMCSCreateAxis called to create each axis of the smarActMCS controller*/
-static const iocshFuncDef ca_def = {"smarActMCSCreateAxis", 3, ca_as};
-
-extern "C" void *
-smarActMCSCreateAxis( const char *controllerPortName, int axisNumber, int dbgLvl)
-{
-  void *rval = 0;
-
-  MCSController *pC;
-  //MCSAxis *pAxis;
-  asynMotorAxis *pAsynAxis;
-
-  // the asyn stuff doesn't seem to be prepared for exceptions. I get segfaults
-  // if constructing a controller (or axis) incurs an exception even if its
-  // caught (IMHO asyn should behave as if the controller/axis never existed...)
-  // rval = new MCSAxis(, axisNumber, channel);
-  pC = (MCSController *)findAsynPortDriver(controllerPortName);
-  if (!pC) {
-    printf("smarActMCSCreateAxis: Error port %s not found\n", controllerPortName);
-    rval = 0;
-    return rval;
-  }
-  // check if axis number already exists
-  pAsynAxis = pC->getAxis(axisNumber);
-  if (pAsynAxis != NULL) { // axis already exists
-    epicsPrintf("SmarActMCSCreateAxis failed:axis %u already exists\n", axisNumber);
-    rval = 0;
-    return rval;
-  }
-  pC->lock();
-  /*pAxis =*/ new MCSAxis(pC, axisNumber, dbgLvl);
-  //pAxis = NULL;
-  pC->unlock();
-
-  return rval;
-}
-
-static void ca_fn(const iocshArgBuf *args)
-{
-  smarActMCSCreateAxis( args[0].sval, args[1].ival, args[2].ival);
-}
-
-extern "C" void MCSExtra(int argc, char **argv)
+void MCSExtra(int argc, char **argv)
 {
   const char* usage[]={
          "MCSExtra report <ASYNPORT>",
@@ -702,23 +653,67 @@ extern "C" void MCSExtra(int argc, char **argv)
   }
 }
 
-// Information needed by iocsh
-static const iocshArg     MCSExtraArg0= {"<variable arguments>", iocshArgArgv};
-static const iocshArg    *MCSExtraArgs[] = {&MCSExtraArg0};
-static const iocshFuncDef MCSExtraFuncDef = {"MCSExtra", 1, MCSExtraArgs};
-
-// Wrapper called by iocsh, selects the argument types that MCSExtra needs
-static void MCSExtraCallFunc(const iocshArgBuf *args) {
-  MCSExtra(args[0].aval.ac, args[0].aval.av);
-}
-
 static void MCSMotorRegister(void)
 {
-  iocshRegister(&cc_def, cc_fn); // MCSCreateController
-  iocshRegister(&ca_def, ca_fn); // smarActMCSCreateAxis
-  iocshRegister(&MCSExtraFuncDef, MCSExtraCallFunc);
+  iocshRegister(&MCSCreateControllerFuncDef, MCSCreateControllerFunc); // MCSCreateController
+  iocshRegister(&MCSExtraDef, MCSExtraFunc);
+  //iocshRegister(&ca_def, ca_fn); // smarActMCSCreateAxis
 }
 
 extern "C" {
   epicsExportRegistrar(MCSMotorRegister);
 }
+
+
+/*
+//smarActMCSCreateAxis not needed any more, as the controller creates by default all axes automatically
+static const iocshArg ca_a0 = {"Controller Port name [string]", iocshArgString};
+static const iocshArg ca_a1 = {"Axis number [int]", iocshArgInt};
+static const iocshArg ca_a2 = {"dbgLvl [int]", iocshArgInt};
+
+static const iocshArg *const ca_as[] = {&ca_a0, &ca_a1, &ca_a2};
+
+// iocsh wrapping and registration business (stolen from ACRMotorDriver.cpp)
+// smarActMCSCreateAxis called to create each axis of the smarActMCS controller
+static const iocshFuncDef ca_def = {"smarActMCSCreateAxis", 3, ca_as};
+
+extern "C" void *
+smarActMCSCreateAxis( const char *controllerPortName, int axisNumber, int dbgLvl)
+{
+  void *rval = 0;
+
+  MCSController *pC;
+  //MCSAxis *pAxis;
+  asynMotorAxis *pAsynAxis;
+
+  // the asyn stuff doesn't seem to be prepared for exceptions. I get segfaults
+  // if constructing a controller (or axis) incurs an exception even if its
+  // caught (IMHO asyn should behave as if the controller/axis never existed...)
+  // rval = new MCSAxis(, axisNumber, channel);
+  pC = (MCSController *)findAsynPortDriver(controllerPortName);
+  if (!pC) {
+    printf("smarActMCSCreateAxis: Error port %s not found\n", controllerPortName);
+    rval = 0;
+    return rval;
+  }
+  // check if axis number already exists
+  pAsynAxis = pC->getAxis(axisNumber);
+  if (pAsynAxis != NULL) { // axis already exists
+    epicsPrintf("SmarActMCSCreateAxis failed:axis %u already exists\n", axisNumber);
+    rval = 0;
+    return rval;
+  }
+  pC->lock();
+  //pAxis =
+  new MCSAxis(pC, axisNumber, dbgLvl);
+  //pAxis = NULL;
+  pC->unlock();
+
+  return rval;
+}
+
+static void ca_fn(const iocshArgBuf *args)
+{
+  smarActMCSCreateAxis( args[0].sval, args[1].ival, args[2].ival);
+}
+*/
