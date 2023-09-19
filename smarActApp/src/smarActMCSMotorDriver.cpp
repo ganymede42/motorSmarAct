@@ -23,7 +23,6 @@
 #include <epicsString.h>
 #include <epicsExport.h>
 
-/* Static configuration parameters (compile-time constants) */
 #ifdef DEBUG
   #define DBG_PRINTF(dbg,...) if(dbg) printf(__VA_ARGS__)
 #else
@@ -54,13 +53,13 @@ enum SmarActMCSStatus {
 
 //-----------------------------------------------------------
 
-SmarActMCSAxis::SmarActMCSAxis(class SmarActMCSController *pC, int axis, int dbgLvl)
+MCSAxis::MCSAxis(class MCSController *pC, int axis, int dbgLvl)
   : asynMotorAxis(pC, axis), pC_(pC), dbgLvl_(dbgLvl)
 {
   asynStatus ast;
   int val;
 
-  asynPrint(pC_->pasynUserSelf, ASYN_TRACEIO_DRIVER, "SmarActMCSAxis::SmarActMCSAxis -- creating axis %u\n", axis);
+  asynPrint(pC_->pasynUserSelf, ASYN_TRACEIO_DRIVER, "MCSAxis::MCSAxis -- creating axis %u\n", axis);
 
   ast = getVal(dbgLvl_&0x01,"GCLS", &vel_);
   if (ast)
@@ -80,11 +79,11 @@ bail:
   callParamCallbacks();
 
   if (ast) {
-    asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "SmarActMCSAxis::SmarActMCSAxis -- channel %u ASYN error %i", axis, ast);
+    asynPrint(pC_->pasynUserSelf, ASYN_TRACE_ERROR, "MCSAxis::MCSAxis -- channel %u ASYN error %i", axis, ast);
   }
 }
 
-asynStatus SmarActMCSAxis::move(double position, int relative, double min_vel, double max_vel, double accel)
+asynStatus MCSAxis::move(double position, int relative, double min_vel, double max_vel, double accel)
 {
   asynStatus ast;
   int holdTime;
@@ -93,7 +92,7 @@ asynStatus SmarActMCSAxis::move(double position, int relative, double min_vel, d
   epicsInt32 angle;
   int rev;
 
-  DBG_PRINTF(dbgLvl_&0x02,"SmarActMCSAxis::move@%u(pos:%.12g rel:%d min_vel:%.12g max_vel:%.12g)\n", axisNo_, position, relative, min_vel, max_vel);
+  DBG_PRINTF(dbgLvl_&0x02,"MCSAxis::move@%u(pos:%.12g rel:%d min_vel:%.12g max_vel:%.12g)\n", axisNo_, position, relative, min_vel, max_vel);
 
   pC_->getIntegerParam(axisNo_, pC_->holdTime_, &holdTime);
   if ((ast = setSpeed(max_vel)))
@@ -104,7 +103,7 @@ asynStatus SmarActMCSAxis::move(double position, int relative, double min_vel, d
   switch(devType_){
   case DT_NO_SENSOR:
     //TODO: support sensorless positioners
-    printf("SmarActMCSAxis::move@%d():sensorless positioners not supported\n",axisNo_);
+    printf("MCSAxis::move@%d():sensorless positioners not supported\n",axisNo_);
     break;
   case DT_LIN:
     fmt = relative ? ":MPR%u,%ld,%d" : ":MPA%u,%ld,%d";
@@ -130,20 +129,18 @@ bail:
   return ast;
 }
 
-asynStatus SmarActMCSAxis::moveVelocity(double min_vel, double max_vel, double accel)
+asynStatus MCSAxis::moveVelocity(double min_vel, double max_vel, double accel)
 {
   asynStatus ast;
   epicsInt32 speed = (epicsInt32)rint(fabs(max_vel));
   epicsInt32 tgt_pos;
   signed char dir = 1;
 
-  /* No MCS command we an use directly. Just use a 'relative move' to
-   * very far target.
-   */
-  DBG_PRINTF(dbgLvl_&0x02,"SmarActMCSAxis::moveVelocity@%d(min_vel:%.12g max_vel:%.12g\n", axisNo_, min_vel, max_vel);
+  // No MCS command we an use directly. Just use a 'relative move' to very far target.
+  DBG_PRINTF(dbgLvl_&0x02,"MCSAxis::moveVelocity@%d(min_vel:%.12g max_vel:%.12g\n", axisNo_, min_vel, max_vel);
 
-  if (0 == speed){
-    //Here we are in a dilemma. If we set the MCS' speed to zero then it will move at unlimited speed which is so fast that
+  if (speed==0){
+    //Here we are in a dilemma. If we set the 'MCS' speed to zero then it will move at unlimited speed which is so fast that
     //'JOG' makes no sense. Just 'STOP' the motion - hope that works...
     setIntegerParam(pC_->motorStop_, 1);
     callParamCallbacks();
@@ -160,7 +157,7 @@ asynStatus SmarActMCSAxis::moveVelocity(double min_vel, double max_vel, double a
   switch(devType_){
   case DT_NO_SENSOR:
     //TODO: support sensorless positioners
-    printf("SmarActMCSAxis::moveVelocity@%u():sensorless positioners not supported\n",axisNo_);
+    printf("MCSAxis::moveVelocity@%u():sensorless positioners not supported\n",axisNo_);
     break;
   case DT_LIN:
     tgt_pos = FAR_AWAY_LIN * dir;
@@ -181,12 +178,12 @@ bail:
   return ast;
 }
 
-asynStatus SmarActMCSAxis::home(double min_vel, double max_vel, double accel, int forwards)
+asynStatus MCSAxis::home(double min_vel, double max_vel, double accel, int forwards)
 {
   asynStatus ast;
   int holdTime;
   int autoZero;
-  DBG_PRINTF(dbgLvl_&0x02,"SmarActMCSAxis::home@%u(forward:%u)\n",axisNo_,forwards);
+  DBG_PRINTF(dbgLvl_&0x02,"MCSAxis::home@%u(forward:%u)\n",axisNo_,forwards);
 
   if ((ast = setSpeed(max_vel)))
     goto bail;
@@ -204,10 +201,10 @@ bail:
   return ast;
 }
 
-asynStatus SmarActMCSAxis::stop(double acceleration)
+asynStatus MCSAxis::stop(double acceleration)
 {
   asynStatus ast;
-  DBG_PRINTF(dbgLvl_&0x02,"SmarActMCSAxis::stop@%u()\n",axisNo_);
+  DBG_PRINTF(dbgLvl_&0x02,"MCSAxis::stop@%u()\n",axisNo_);
   ast = pC_->cmdWriteRead(dbgLvl_&0x02,":S%u", axisNo_);
 
   if (ast) {
@@ -218,7 +215,7 @@ asynStatus SmarActMCSAxis::stop(double acceleration)
   return ast;
 }
 
-asynStatus SmarActMCSAxis::poll(bool *moving_p)
+asynStatus MCSAxis::poll(bool *moving_p)
 {
   asynStatus ast;
   int val,pos=0;
@@ -264,9 +261,7 @@ asynStatus SmarActMCSAxis::poll(bool *moving_p)
 
   setIntegerParam(pC_->motorStatusDone_, !*moving_p);
 
-  /* Check if the sensor 'knows' absolute position and
-   * update the MSTA 'HOMED' bit.
-   */
+  // Check if the sensor 'knows' absolute position and update the MSTA 'HOMED' bit.
   if ((ast = getVal(dbgLvl_&0x100,"GPPK", &val)))
     goto bail;
 
@@ -285,7 +280,7 @@ bail:
   return ast;
 }
 
-asynStatus SmarActMCSAxis::setPosition(double position)
+asynStatus MCSAxis::setPosition(double position)
 {
   asynStatus ast=asynSuccess;
   double rpos;
@@ -295,7 +290,7 @@ asynStatus SmarActMCSAxis::setPosition(double position)
   switch(devType_){
   case DT_NO_SENSOR:
     //TODO: support sensorless positioners
-    printf("SmarActMCSAxis::setPosition()@%d:sensorless positioners not supported\n",axisNo_);
+    printf("MCSAxis::setPosition()@%d:sensorless positioners not supported\n",axisNo_);
     break;
   case DT_LIN:
     ast = pC_->cmdWriteRead(dbgLvl_&0x02,":SP%u,%d", axisNo_, (epicsInt32)rpos);
@@ -322,40 +317,35 @@ asynStatus SmarActMCSAxis::setPosition(double position)
 
 //--------------- own methods ---------------
 
-/* Check if the positioner type set on the controller
- * is linear or rotary and set the isRot_ parameter correctly.
- */
-void SmarActMCSAxis::checkType()
+// Check if the positioner type set on the controller is linear or rotary or without encoder
+void MCSAxis::checkType()
 {
   int val;
-  // Attempt to check linear position, if we receive
-  // an error, we're a rotary motor.
+  // Attempt to check linear sensor
   if (asynSuccess ==  getVal(dbgLvl_&0x04,"GP", &val)) {
     devType_=DT_LIN;
     setIntegerParam(pC_->motorStatusHasEncoder_, 1);
     setIntegerParam(pC_->motorStatusGainSupport_, 1);
   }
+  // Attempt to check rotary sensor
   else if (asynSuccess ==  getAngle(dbgLvl_&0x04,&val)) {
     devType_=DT_ROT;
     setIntegerParam(pC_->motorStatusHasEncoder_, 1);
     setIntegerParam(pC_->motorStatusGainSupport_, 1);
   }
-  else {
+  else { // up to now we could not test with such sensors on MCS1
     devType_=DT_NO_SENSOR;
   }
-  DBG_PRINTF(dbgLvl_&0x04,"SmarActMCSAxis::checkType@%u() -> %d\n", axisNo_,devType_);
+  DBG_PRINTF(dbgLvl_&0x04,"MCSAxis::checkType@%u() -> %d\n", axisNo_,devType_);
   return;
 }
 
-/* Read a parameter from the MCS (nothing to do with asyn's parameter
- * library).
- *
- * parm_cmd: MCS command (w/o ':' char) to read parameter
- * val_p:    where to store the value returned by the MCS
- *
- * RETURNS:  asynError if an error occurred, asynSuccess otherwise.
- */
-asynStatus SmarActMCSAxis::getVal(bool dbg,const char *parm_cmd, int *val_p)
+// Read a parameter from the MCS (nothing to do with asyn's parameter library).
+//
+// parm_cmd: MCS command (w/o ':' char) to read parameter
+// val:    where to store the value returned by the MCS
+// RETURNS:  asynError if an error occurred, asynSuccess otherwise.
+asynStatus MCSAxis::getVal(bool dbg,const char *parm_cmd, int *val)
 {
   asynStatus ast;
   int ax;
@@ -363,34 +353,33 @@ asynStatus SmarActMCSAxis::getVal(bool dbg,const char *parm_cmd, int *val_p)
   ast = pC_->cmdWriteRead(dbg, ":%s%u", parm_cmd, this->axisNo_);
   if (ast)
     return ast;
-  return pC_->parse2Val(&ax, val_p) ? asynError : asynSuccess;
+  return pC_->parse2Val(&ax, val) ? asynError : asynSuccess;
 }
 
-/* Read the position of rotation stage
- *
- * parm_cmd: MCS command (w/o ':' char) to read parameter
- * val_p:    where to store the value returned by the MCS
- *
- * RETURNS:  asynError if an error occurred, asynSuccess otherwise.
- */
-asynStatus SmarActMCSAxis::getAngle(bool dbg,int *val_p)
+// Read the position of rotation stage
+//
+// parm_cmd: MCS command (w/o ':' char) to read parameter
+// val:    where to store the value returned by the MCS
+// RETURNS:  asynError if an error occurred, asynSuccess otherwise.
+///
+asynStatus MCSAxis::getAngle(bool dbg,int *val)
 {
   asynStatus ast;
-  int ax,val,rev,res;
+  int ax,pos,rev,res;
   ast = pC_->cmdWriteRead(dbg, ":GA%u", this->axisNo_);
   if (ast)
     return ast;
-  res=pC_->parse3Val(&ax, &val, &rev);
+  res=pC_->parse3Val(&ax, &pos, &rev);
   if (res)
     ast=asynError;
   else
-    *val_p = val+ rev * UDEG_PER_REV;
+    *val = pos+ rev * UDEG_PER_REV;
   return ast;
 }
 
-asynStatus SmarActMCSAxis::setSpeed(double velocity)
+asynStatus MCSAxis::setSpeed(double velocity)
 {
-  DBG_PRINTF(dbgLvl_&0x02,"SmarActMCSAxis::setSpeed@%u(%.12g)\n",axisNo_,velocity);
+  DBG_PRINTF(dbgLvl_&0x02,"MCSAxis::setSpeed@%u(%.12g)\n",axisNo_,velocity);
   epicsInt32 ax,vel;
   asynStatus ast;
   vel = (epicsInt32)rint(fabs(velocity));
@@ -407,7 +396,7 @@ asynStatus SmarActMCSAxis::setSpeed(double velocity)
 
 //------------------------------------------------------------------
 
-SmarActMCSController::SmarActMCSController(const char *portName, const char *IOPortName, int numAxes, double movingPollPeriod, double idlePollPeriod, int disableSpeed)
+MCSController::MCSController(const char *portName, const char *IOPortName, int numAxes, double movingPollPeriod, double idlePollPeriod, int dbgLvl)
     : asynMotorController(portName, numAxes,
                           0, // parameters
                           0, // interface mask
@@ -418,12 +407,8 @@ SmarActMCSController::SmarActMCSController(const char *portName, const char *IOP
        pAsynUserMot_(0)
 {
   asynStatus status;
-  char junk[100];
-  size_t got_junk;
-  int eomReason;
-  pAxes_ = (SmarActMCSAxis **)(asynMotorController::pAxes_);
-  if (disableSpeed)
-    epicsPrintf("SmarActMCSController(%s): WARNING - The disableSpeed is not supported any more\n", portName);
+  int axis;
+  pAxes_ = (MCSAxis **)(asynMotorController::pAxes_);
 
   createParam(MCSPtypString, asynParamInt32, &this->ptyp_);
   createParam(MCSPtypRbString, asynParamInt32, &this->ptyprb_);
@@ -434,32 +419,18 @@ SmarActMCSController::SmarActMCSController(const char *portName, const char *IOP
 
   status = pasynOctetSyncIO->connect(IOPortName, 0, &pAsynUserMot_, NULL);
   if (status) {
-    asynPrint(this->pasynUserSelf, ASYN_TRACE_ERROR,
-          "SmarActMCSController:SmarActMCSController: cannot connect to MCS controller\n");
+    asynPrint(this->pasynUserSelf, ASYN_TRACE_ERROR, "MCSController:MCSController: cannot connect to MCS controller\n");
   }
-
-  // slurp away any initial telnet negotiation; there is no guarantee that
-  // the other end will not send some telnet chars in the future. The terminal
-  // server should really be configured to 'raw' mode!
-  pasynOctetSyncIO->read(pAsynUserMot_, junk, sizeof(junk), 2.0, &got_junk, &eomReason);
-  if (got_junk) {
-    epicsPrintf("SmarActMCSController(%s): WARNING - detected unexpected characters on link (%s); make sure you have a RAW (not TELNET) connection\n", portName, IOPortName);
-  }
-
   pasynOctetSyncIO->setInputEos(pAsynUserMot_, "\n", 1);
   pasynOctetSyncIO->setOutputEos(pAsynUserMot_, "\n", 1);
 
-  // Create axes
-  /*  for ( ax=0; ax<numAxes; ax++ ) {
-      //axis_p = new SmarActMCSAxis(this, ax);
-      pAxes_[ax] = new SmarActMCSAxis(this, ax);
-    }
-  */
-  // move to iocsh function smarActMCSCreateAxis()
+  // Create the axis objects
+  for(axis=0; axis<numAxes; axis++){
+    new MCSAxis(this, axis,dbgLvl);
+  }
 
-  // FIXME the 'forcedFastPolls' may need to be set if the 'sleep/wakeup' feature
-  //       of the sensor/readback is used.
-  startPoller(movingPollPeriod, idlePollPeriod, 0);
+  //User specifies poll periods in milliseconds, starPoller expects seconds
+  startPoller(movingPollPeriod/1000, idlePollPeriod/1000, 0);
 }
 
 
@@ -473,7 +444,7 @@ SmarActMCSController::SmarActMCSController(const char *portName, const char *IOP
 // error code is returned (may be zero in case of an 'acknowledgement'
 // If the string is parsed successfully then <value> is passed up
 // in *val and 0 is returned
-int SmarActMCSController::parse2Val(int *val1, int *val2)
+int MCSController::parse2Val(int *val1, int *val2)
 {
   char cmd[10];
   if (3 != sscanf(outString_, ":%10[A-Z]%i,%i", cmd, val1, val2))
@@ -491,7 +462,7 @@ int SmarActMCSController::parse2Val(int *val1, int *val2)
 // error code is returned (may be zero in case of an 'acknowledgement'
 // If the string is parsed successfully then <value> is passed up
 // in *val and 0 is returned
-int SmarActMCSController::parse3Val(int *val1, int *val2, int *val3)
+int MCSController::parse3Val(int *val1, int *val2, int *val3)
 {
   char cmd[10];
   if (4 != sscanf(outString_, ":%10[A-Z]%i,%i,%i", cmd, val1, val2, val3))
@@ -502,14 +473,14 @@ int SmarActMCSController::parse3Val(int *val1, int *val2, int *val3)
 //formatted write string to member outString_
 //reads returned string in outString_
 //if dbg !=0 the strings are printed to the console
-asynStatus SmarActMCSController::cmdWriteRead(bool dbg,const char *fmt, ...)
+asynStatus MCSController::cmdWriteRead(bool dbg,const char *fmt, ...)
 {
   asynStatus ast;
   va_list ap;
   va_start(ap, fmt);
   epicsVsnprintf(outString_, sizeof(outString_), fmt, ap);
   va_end(ap);
-  DBG_PRINTF(dbg,"SmarActMCSController::cmdWriteRead: %s -> ",outString_);
+  DBG_PRINTF(dbg,"MCSController::cmdWriteRead: %s -> ",outString_);
   {
     size_t nwrite,nread;
     int eomReason;
@@ -522,28 +493,28 @@ asynStatus SmarActMCSController::cmdWriteRead(bool dbg,const char *fmt, ...)
   return ast;
 }
 
-/** Called when asyn clients call pasynInt32->write().
- * Extracts the function and axis number from pasynUser.
- * Sets the value in the parameter library.
- * For all other functions it calls asynMotorController::writeInt32.
- * Calls any registered callbacks for this pasynUser->reason and address.
- * \param[in] pasynUser asynUser structure that encodes the reason and address.
- * \param[in] value     Value to write. */
-asynStatus SmarActMCSController::writeInt32(asynUser *pasynUser, epicsInt32 value)
+// Called when asyn clients call pasynInt32->write().
+// Extracts the function and axis number from pasynUser.
+// Sets the value in the parameter library.
+// For all other functions it calls asynMotorController::writeInt32.
+// Calls any registered callbacks for this pasynUser->reason and address.
+// \param[in] pasynUser asynUser structure that encodes the reason and address.
+// \param[in] value     Value to write. */
+asynStatus MCSController::writeInt32(asynUser *pasynUser, epicsInt32 value)
 {
   int function = pasynUser->reason;
   asynStatus status = asynSuccess;
   int val, ax;
-  SmarActMCSAxis *pAxis = static_cast<SmarActMCSAxis *>(getAxis(pasynUser));
+  MCSAxis *pAxis = static_cast<MCSAxis *>(getAxis(pasynUser));
 
   if (!pAxis) {
-    asynPrint(pasynUser, ASYN_TRACE_ERROR, "SmarActMCSController:writeInt32: error, function: %i. Invalid axis number.\n", function);
+    asynPrint(pasynUser, ASYN_TRACE_ERROR, "MCSController:writeInt32: error, function: %i. Invalid axis number.\n", function);
     return asynError;
   }
 
-  /* Set the parameter and readback in the parameter library.  This may be overwritten when we read back the
-   * status at the end, but that's OK */
-  //status = setIntegerParam(pAxis->axisNo_, function, value);
+  // Set the parameter and readback in the parameter library.  This may be overwritten when we read back the
+  // status at the end, but that's OK
+  // status = setIntegerParam(pAxis->axisNo_, function, value);
 
   if (function == ptyp_) {
     // set positioner type
@@ -565,26 +536,26 @@ asynStatus SmarActMCSController::writeInt32(asynUser *pasynUser, epicsInt32 valu
     if (parse2Val(&ax, &val)) return asynError;
   }
   else {
-    /* Call base class method */
+    // Call base class method
     status = asynMotorController::writeInt32(pasynUser, value);
   }
 
-  /* Do callbacks so higher layers see any changes */
+  // Do callbacks so higher layers see any changes
   callParamCallbacks(pAxis->axisNo_);
   if (status)
     asynPrint(pasynUser, ASYN_TRACE_ERROR,
-          "SmarActMCSController:writeInt32: error, status=%d function=%d, value=%d\n",
+          "MCSController:writeInt32: error, status=%d function=%d, value=%d\n",
           status, function, value);
   else
     asynPrint(pasynUser, ASYN_TRACEIO_DRIVER,
-          "SmarActMCSController:writeInt32: function=%d, value=%d\n",
+          "MCSController:writeInt32: function=%d, value=%d\n",
           function, value);
   return status;
 }
 
 //------------------------------------------------------------------
 
-/* iocsh wrapping and registration business (stolen from ACRMotorDriver.cpp) */
+// iocsh wrapping and registration business (stolen from ACRMotorDriver.cpp)
 static const iocshArg cc_a0 = {"Port name [string]", iocshArgString};
 static const iocshArg cc_a1 = {"I/O port name [string]", iocshArgString};
 static const iocshArg cc_a2 = {"Number of axes [int]", iocshArgInt};
@@ -594,28 +565,22 @@ static const iocshArg cc_a5 = {"Disable speed cmds [int]", iocshArgInt};
 
 static const iocshArg *const cc_as[] = {&cc_a0, &cc_a1, &cc_a2, &cc_a3, &cc_a4, &cc_a5};
 
-static const iocshFuncDef cc_def = {"smarActMCSCreateController", sizeof(cc_as) / sizeof(cc_as[0]), cc_as};
+static const iocshFuncDef cc_def = {"MCSCreateController", sizeof(cc_as) / sizeof(cc_as[0]), cc_as};
 
 extern "C" void *
-smarActMCSCreateController(
-  const char *motorPortName,
-  const char *ioPortName,
-  int numAxes,
-  double movingPollPeriod,
-  double idlePollPeriod,
-  int disableSpeed)
+MCSCreateController( const char *motorPortName, const char *ioPortName, int numAxes, double movingPollPeriod, double idlePollPeriod, int disableSpeed)
 {
   void *rval = 0;
   // the asyn stuff doesn't seem to be prepared for exceptions. I get segfaults
   // if constructing a controller (or axis) incurs an exception even if its
   // caught (IMHO asyn should behave as if the controller/axis never existed...)
-  rval = new SmarActMCSController(motorPortName, ioPortName, numAxes, movingPollPeriod, idlePollPeriod, disableSpeed);
+  rval = new MCSController(motorPortName, ioPortName, numAxes, movingPollPeriod, idlePollPeriod, disableSpeed);
   return rval;
 }
 
 static void cc_fn(const iocshArgBuf *args)
 {
-  smarActMCSCreateController( args[0].sval, args[1].sval, args[2].ival, args[3].dval, args[4].dval, args[5].ival);
+  MCSCreateController( args[0].sval, args[1].sval, args[2].ival, args[3].dval, args[4].dval, args[5].ival);
 }
 
 static const iocshArg ca_a0 = {"Controller Port name [string]", iocshArgString};
@@ -629,22 +594,19 @@ static const iocshArg *const ca_as[] = {&ca_a0, &ca_a1, &ca_a2};
 static const iocshFuncDef ca_def = {"smarActMCSCreateAxis", 3, ca_as};
 
 extern "C" void *
-smarActMCSCreateAxis(
-  const char *controllerPortName,
-  int axisNumber,
-  int dbgLvl)
+smarActMCSCreateAxis( const char *controllerPortName, int axisNumber, int dbgLvl)
 {
   void *rval = 0;
 
-  SmarActMCSController *pC;
-  //SmarActMCSAxis *pAxis;
+  MCSController *pC;
+  //MCSAxis *pAxis;
   asynMotorAxis *pAsynAxis;
 
   // the asyn stuff doesn't seem to be prepared for exceptions. I get segfaults
   // if constructing a controller (or axis) incurs an exception even if its
   // caught (IMHO asyn should behave as if the controller/axis never existed...)
-  // rval = new SmarActMCSAxis(, axisNumber, channel);
-  pC = (SmarActMCSController *)findAsynPortDriver(controllerPortName);
+  // rval = new MCSAxis(, axisNumber, channel);
+  pC = (MCSController *)findAsynPortDriver(controllerPortName);
   if (!pC) {
     printf("smarActMCSCreateAxis: Error port %s not found\n", controllerPortName);
     rval = 0;
@@ -658,7 +620,7 @@ smarActMCSCreateAxis(
     return rval;
   }
   pC->lock();
-  /*pAxis =*/ new SmarActMCSAxis(pC, axisNumber, dbgLvl);
+  /*pAxis =*/ new MCSAxis(pC, axisNumber, dbgLvl);
   //pAxis = NULL;
   pC->unlock();
 
@@ -670,11 +632,11 @@ static void ca_fn(const iocshArgBuf *args)
   smarActMCSCreateAxis( args[0].sval, args[1].ival, args[2].ival);
 }
 
-extern "C" void smarActMCSExtra(int argc, char **argv)
+extern "C" void MCSExtra(int argc, char **argv)
 {
   const char* usage[]={
-         "smarActExtra report <ASYNPORT>",
-         "smarActExtra setDbgLvlAxis <ASYNPORT> <AX> <HEX_DBGLVL>\n"\
+         "MCSExtra report <ASYNPORT>",
+         "MCSExtra setDbgLvlAxis <ASYNPORT> <AX> <HEX_DBGLVL>\n"\
          "Debug bits Axis (default value 0x00ff):\n"\
          "  0x001 : constructor\n"\
          "  0x002 : move, moveVelocity, stop, homing, setPosition\n"\
@@ -696,7 +658,7 @@ extern "C" void smarActMCSExtra(int argc, char **argv)
       puts(usage[0]);
     else
     {
-      SmarActMCSController* pC = (SmarActMCSController*) findAsynPortDriver(argv[2]);
+      MCSController* pC = (MCSController*) findAsynPortDriver(argv[2]);
       if(!pC)
       {
         puts(usage[0]);
@@ -704,7 +666,7 @@ extern "C" void smarActMCSExtra(int argc, char **argv)
       }
       for(i=0;i<32;i++)
       {
-        SmarActMCSAxis* ax=(SmarActMCSAxis*)pC->getAxis(i);
+        MCSAxis* ax=(MCSAxis*)pC->getAxis(i);
         if(!ax)
           break;
         printf("axis:%d dbgVerb %x\n",i,ax->dbgLvl_);
@@ -717,14 +679,14 @@ extern "C" void smarActMCSExtra(int argc, char **argv)
       puts(usage[1]);
     else
     {
-      SmarActMCSController* pC = (SmarActMCSController*) findAsynPortDriver(argv[2]);
+      MCSController* pC = (MCSController*) findAsynPortDriver(argv[2]);
       if(!pC)
       {
         puts(usage[1]);
         return;
       }
-      SmarActMCSAxis* ax=(SmarActMCSAxis*)pC->getAxis(atoi(argv[3]));
-      printf("smarActMCSExtra %s:%s:%s = %p\n",argv[1],argv[2],argv[3],ax);
+      MCSAxis* ax=(MCSAxis*)pC->getAxis(atoi(argv[3]));
+      printf("MCSExtra %s:%s:%s = %p\n",argv[1],argv[2],argv[3],ax);
       if(ax)
       {
         uint32_t oldVal=ax->dbgLvl_,newVal=strtol(argv[4], NULL, 0);
@@ -740,23 +702,23 @@ extern "C" void smarActMCSExtra(int argc, char **argv)
   }
 }
 
-/* Information needed by iocsh */
-static const iocshArg     smarActMCSExtraArg0= {"setAxisDbgLvl <variable arguments>", iocshArgArgv};
-static const iocshArg    *smarActMCSExtraArgs[] = {&smarActMCSExtraArg0};
-static const iocshFuncDef smarActMCSExtraFuncDef = {"smarActMCSExtra", 1, smarActMCSExtraArgs};
+// Information needed by iocsh
+static const iocshArg     MCSExtraArg0= {"<variable arguments>", iocshArgArgv};
+static const iocshArg    *MCSExtraArgs[] = {&MCSExtraArg0};
+static const iocshFuncDef MCSExtraFuncDef = {"MCSExtra", 1, MCSExtraArgs};
 
-/* Wrapper called by iocsh, selects the argument types that smarActMCSExtra needs */
-static void smarActMCSExtraCallFunc(const iocshArgBuf *args) {
-  smarActMCSExtra(args[0].aval.ac, args[0].aval.av);
+// Wrapper called by iocsh, selects the argument types that MCSExtra needs
+static void MCSExtraCallFunc(const iocshArgBuf *args) {
+  MCSExtra(args[0].aval.ac, args[0].aval.av);
 }
 
-static void smarActMCSMotorRegister(void)
+static void MCSMotorRegister(void)
 {
-  iocshRegister(&cc_def, cc_fn); // smarActMCSCreateController
+  iocshRegister(&cc_def, cc_fn); // MCSCreateController
   iocshRegister(&ca_def, ca_fn); // smarActMCSCreateAxis
-  iocshRegister(&smarActMCSExtraFuncDef, smarActMCSExtraCallFunc);
+  iocshRegister(&MCSExtraFuncDef, MCSExtraCallFunc);
 }
 
 extern "C" {
-  epicsExportRegistrar(smarActMCSMotorRegister);
+  epicsExportRegistrar(MCSMotorRegister);
 }

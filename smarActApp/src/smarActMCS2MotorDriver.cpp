@@ -24,12 +24,12 @@ Jan 19, 2019
 #include "smarActMCS2MotorDriver.h"
 
 #ifdef DEBUG
-  #define DBG_PRINTF(...) printf(__VA_ARGS__)
+  #define DBG_PRINTF(dbg,...) if(dbg) printf(__VA_ARGS__)
 #else
-  #define DBG_PRINTF(...)
+  #define DBG_PRINTF(dbg,...)
 #endif
 
-static const char *driverName = "SmarActMCS2MotorDriver";
+#define _countof(arr) sizeof(arr) / sizeof(arr[0])
 
 /** Creates a new MCS2Controller object.
  * \param[in] portName             The name of the asyn port that will be created for this driver
@@ -39,16 +39,15 @@ static const char *driverName = "SmarActMCS2MotorDriver";
  * \param[in] idlePollPeriod       The time between polls when no axis is moving
  */
 MCS2Controller::MCS2Controller(const char *portName, const char *MCS2PortName, int numAxes,
-                               double movingPollPeriod, double idlePollPeriod, int unusedMask)
+                               double movingPollPeriod, double idlePollPeriod, int dbgLvl)
     : asynMotorController(portName, numAxes, NUM_MCS2_PARAMS,
                           0, 0,
                           ASYN_CANBLOCK | ASYN_MULTIDEVICE,
                           1,    // autoconnect
                           0, 0) // Default priority and stack size
 {
-  int axis, axisMask = 0;
+  int axis;
   asynStatus status;
-  static const char *functionName = "MCS2Controller";
   asynPrint(this->pasynUserSelf, ASYN_TRACEIO_DRIVER, "MCS2Controller::MCS2Controller: Creating controller\n");
 
   // Create controller-specific parameters
@@ -66,9 +65,7 @@ MCS2Controller::MCS2Controller(const char *portName, const char *MCS2PortName, i
 
   asynPrint(this->pasynUserSelf, ASYN_TRACEIO_DRIVER, "MCS2Controller::MCS2Controller: Connecting to controller\n");
   if (status) {
-    asynPrint(this->pasynUserSelf, ASYN_TRACE_ERROR,
-              "%s:%s: cannot connect to MCS2 controller\n",
-              driverName, functionName);
+    asynPrint(this->pasynUserSelf, ASYN_TRACE_ERROR, "MCS2Controller::MCS2Controller: cannot connect to MCS2 controller\n");
   }
   asynPrint(this->pasynUserSelf, ASYN_TRACEIO_DRIVER, "MCS2Controller::MCS2Controller: Clearing error messages\n");
   this->clearErrors();
@@ -76,23 +73,17 @@ MCS2Controller::MCS2Controller(const char *portName, const char *MCS2PortName, i
   sprintf(this->outString_, ":DEV:SNUM?");
   status = this->writeReadController();
   if (status) {
-    asynPrint(this->pasynUserSelf, ASYN_TRACE_ERROR,
-              "%s:%s: cannot connect to MCS2 controller\n",
-              driverName, functionName);
+    asynPrint(this->pasynUserSelf, ASYN_TRACE_ERROR,"MCS2Controller::MCS2Controller: cannot connect to MCS2 controller\n");
   }
-  asynPrint(this->pasynUserSelf, ASYN_TRACE_ERROR, "MCS2Controller::MCS2Controller: Device Name: %s\n", this->inString_);
   this->clearErrors();
 
   // Create the axis objects
-  asynPrint(this->pasynUserSelf, ASYN_TRACEIO_DRIVER, "MCS2Controller::MCS2Controller: Creating axes\n");
-
-  for(axis=0; axis<numAxes; axis++){ 
-    axisMask = (unusedMask & (1 << axis)) >> axis;
-    if (!axisMask)
-      new MCS2Axis(this, axis);
+  for(axis=0; axis<numAxes; axis++){
+    new MCS2Axis(this, axis, dbgLvl);
   }
 
-  startPoller(movingPollPeriod, idlePollPeriod, 2);
+  //User specifies poll periods in milliseconds, starPoller expects seconds
+  startPoller(movingPollPeriod/1000, idlePollPeriod/1000, 2);
 }
 
 /** Creates a new MCS2Controller object.
@@ -104,9 +95,9 @@ MCS2Controller::MCS2Controller(const char *portName, const char *MCS2PortName, i
  * \param[in] idlePollPeriod    The time in ms between polls when no axis is moving
  */
 extern "C" int MCS2CreateController(const char *portName, const char *MCS2PortName, int numAxes,
-                                    int movingPollPeriod, int idlePollPeriod, int unusedMask)
+                                    int movingPollPeriod, int idlePollPeriod, int dbgLvl)
 {
-  new MCS2Controller(portName, MCS2PortName, numAxes, movingPollPeriod / 1000., idlePollPeriod / 1000., unusedMask);
+  new MCS2Controller(portName, MCS2PortName, numAxes, movingPollPeriod, idlePollPeriod, dbgLvl);
   return (asynSuccess);
 }
 
@@ -211,7 +202,6 @@ asynStatus MCS2Controller::writeInt32(asynUser *pasynUser, epicsInt32 value)
   int function = pasynUser->reason;
   asynStatus status = asynSuccess;
   MCS2Axis *pAxis = getAxis(pasynUser);
-  static const char *functionName = "writeInt32";
 
   // Check if axis exists
   if(!pAxis) return asynError;
@@ -249,13 +239,9 @@ asynStatus MCS2Controller::writeInt32(asynUser *pasynUser, epicsInt32 value)
   // Do callbacks so higher layers see any changes
   callParamCallbacks(pAxis->axisNo_);
   if (status)
-    asynPrint(pasynUser, ASYN_TRACE_ERROR,
-              "%s:%s: error, status=%d function=%d, value=%d\n",
-              driverName, functionName, status, function, value);
+    asynPrint(pasynUser, ASYN_TRACE_ERROR, "MCS2Controller::writeInt32: error, status=%d function=%d, value=%d\n", status, function, value);
   else
-    asynPrint(pasynUser, ASYN_TRACEIO_DRIVER,
-              "%s:%s: function=%d, value=%d\n",
-              driverName, functionName, function, value);
+    asynPrint(pasynUser, ASYN_TRACEIO_DRIVER, "MCS2Controller::writeInt32: function=%d, value=%d\n", function, value);
   return status;
 }
 
@@ -267,12 +253,12 @@ asynStatus MCS2Controller::writeInt32(asynUser *pasynUser, epicsInt32 value)
  *
  * Initializes register numbers, etc.
  */
-MCS2Axis::MCS2Axis(MCS2Controller *pC, int axisNo)
+MCS2Axis::MCS2Axis(MCS2Controller *pC, int axisNo, int dbgLvl)
     : asynMotorAxis(pC, axisNo),
-      pC_(pC)
+      pC_(pC),
+      dbgLvl_(dbgLvl)
 {
   asynPrint(pC->pasynUserSelf, ASYN_TRACEIO_DRIVER, "MCS2Axis::MCS2Axis: Creating axis %u\n", axisNo);
-  channel_ = axisNo;
   pC_->clearErrors();
   callParamCallbacks();
 }
@@ -299,31 +285,31 @@ void MCS2Axis::report(FILE *fp, int level)
 
     asynStatus status;
 
-    sprintf(pC_->outString_, ":CHAN%d:PTYP?", channel_);
+    sprintf(pC_->outString_, ":CHAN%d:PTYP?", axisNo_);
     status = pC_->writeReadController();
     pcode = atoi(pC_->inString_);
-    sprintf(pC_->outString_, ":CHAN%d:PTYP:NAME?", channel_);
+    sprintf(pC_->outString_, ":CHAN%d:PTYP:NAME?", axisNo_);
     status = pC_->writeReadController();
     strcpy(pC_->inString_, pname);
-    sprintf(pC_->outString_, ":CHAN%d:STAT?", channel_);
+    sprintf(pC_->outString_, ":CHAN%d:STAT?", axisNo_);
     status = pC_->writeReadController();
     channelState = atoi(pC_->inString_);
-    sprintf(pC_->outString_, ":CHAN%d:VEL?", channel_);
+    sprintf(pC_->outString_, ":CHAN%d:VEL?", axisNo_);
     status = pC_->writeReadController();
     vel = atoi(pC_->inString_);
-    sprintf(pC_->outString_, ":CHAN%d:ACC?", channel_);
+    sprintf(pC_->outString_, ":CHAN%d:ACC?", axisNo_);
     status = pC_->writeReadController();
     acc = atoi(pC_->inString_);
-    sprintf(pC_->outString_, ":CHAN%d:MCLF?", channel_);
+    sprintf(pC_->outString_, ":CHAN%d:MCLF?", axisNo_);
     status = pC_->writeReadController();
     mclf = atoi(pC_->inString_);
-    sprintf(pC_->outString_, ":CHAN%d:FERR?", channel_);
+    sprintf(pC_->outString_, ":CHAN%d:FERR?", axisNo_);
     status = pC_->writeReadController();
     followError = atoi(pC_->inString_);
-    sprintf(pC_->outString_, ":CHAN%d:ERR?", channel_);
+    sprintf(pC_->outString_, ":CHAN%d:ERR?", axisNo_);
     status = pC_->writeReadController();
     error = atoi(pC_->inString_);
-    sprintf(pC_->outString_, ":CHAN%d:TEMP?", channel_);
+    sprintf(pC_->outString_, ":CHAN%d:TEMP?", axisNo_);
     status = pC_->writeReadController();
     temp = atoi(pC_->inString_);
 
@@ -357,42 +343,42 @@ asynStatus MCS2Axis::move(double position, int relative, double minVelocity, dou
   // 1 relative (close loop)
   // 4 relative steps (open loop)
   int hasEnc;
-  pC_->getIntegerParam(channel_, pC_->motorStatusHasEncoder_, &hasEnc);
+  pC_->getIntegerParam(axisNo_, pC_->motorStatusHasEncoder_, &hasEnc);
   if(hasEnc)
   {
-    DBG_PRINTF("MCS2Axis::move: closeloop: position: %g rel: %d\n",position,relative);
-    sprintf(pC_->outString_, ":CHAN%d:MMOD %d", channel_, relative > 0 ? 1 : 0);
+    DBG_PRINTF(1,"MCS2Axis::move: closeloop: position: %g rel: %d\n",position,relative);
+    sprintf(pC_->outString_, ":CHAN%d:MMOD %d", axisNo_, relative > 0 ? 1 : 0);
     status = pC_->writeController();
     // Set acceleration
-    sprintf(pC_->outString_, ":CHAN%d:ACC %f", channel_, acceleration * PULSES_PER_STEP);
+    sprintf(pC_->outString_, ":CHAN%d:ACC %f", axisNo_, acceleration * PULSES_PER_STEP);
     status = pC_->writeController();
     // Set velocity
-    sprintf(pC_->outString_, ":CHAN%d:VEL %f", channel_, maxVelocity * PULSES_PER_STEP);
+    sprintf(pC_->outString_, ":CHAN%d:VEL %f", axisNo_, maxVelocity * PULSES_PER_STEP);
     status = pC_->writeController();
     // Do move
-    sprintf(pC_->outString_, ":MOVE%d %f", channel_, position * PULSES_PER_STEP);
+    sprintf(pC_->outString_, ":MOVE%d %f", axisNo_, position * PULSES_PER_STEP);
     status = pC_->writeController();
   }
   else
   { // move relative in open loop
     double curPos;
-    pC_->getDoubleParam(channel_, pC_->motorEncoderPosition_,&curPos);
-    //pC_->getDoubleParam(channel_, pC_->motorPosition_, &curPos);
+    pC_->getDoubleParam(axisNo_, pC_->motorEncoderPosition_,&curPos);
+    //pC_->getDoubleParam(axisNo_, pC_->motorPosition_, &curPos);
     if(!relative)
       position=position-curPos;
     curPos+=position;
-    DBG_PRINTF("MCS2Axis::move: openloop: new_pos: %g rel_move: %g\n",curPos,position);
+    DBG_PRINTF(1,"MCS2Axis::move: openloop: new_pos: %g rel_move: %g\n",curPos,position);
     //:STEP:FREQuency 1..20000, default:1000 Hz.
     //:STEP:AMPLitude 1..65535, default:65535 (100 V).
     setDoubleParam(pC_->motorEncoderPosition_, curPos);
     setDoubleParam(pC_->motorPosition_, curPos);
 
-    sprintf(pC_->outString_, ":CHAN%d:MMOD %d", channel_, 4);
+    sprintf(pC_->outString_, ":CHAN%d:MMOD %d", axisNo_, 4);
     status = pC_->writeController();
-    DBG_PRINTF("MCS2Axis::move: %s ->status:%d\n",pC_->outString_,status);
-    sprintf(pC_->outString_, ":MOVE%d %f", channel_, position);
+    DBG_PRINTF(1,"MCS2Axis::move: %s ->status:%d\n",pC_->outString_,status);
+    sprintf(pC_->outString_, ":MOVE%d %f", axisNo_, position);
     status = pC_->writeController();
-    DBG_PRINTF("MCS2Axis::move: %s ->status:%d\n",pC_->outString_,status);
+    DBG_PRINTF(1,"MCS2Axis::move: %s ->status:%d\n",pC_->outString_,status);
   }
   return status;
 }
@@ -408,21 +394,21 @@ asynStatus MCS2Axis::home(double minVelocity, double maxVelocity, double acceler
   refOpt |= AUTO_ZERO;
 
   // Set default reference options - direction and autozero
-  sprintf(pC_->outString_, ":CHAN%d:REF:OPT %d", channel_, refOpt);
-  DBG_PRINTF("MCS2Axis::home: %s",pC_->outString_);
+  sprintf(pC_->outString_, ":CHAN%d:REF:OPT %d", axisNo_, refOpt);
+  DBG_PRINTF(1,"MCS2Axis::home: %s",pC_->outString_);
 
   status = pC_->writeController();
   pC_->clearErrors();
   // Set acceleration
-  sprintf(pC_->outString_, ":CHAN%d:ACC %f", channel_, acceleration * PULSES_PER_STEP);
+  sprintf(pC_->outString_, ":CHAN%d:ACC %f", axisNo_, acceleration * PULSES_PER_STEP);
   status = pC_->writeController();
   pC_->clearErrors();
   // Set velocity
-  sprintf(pC_->outString_, ":CHAN%d:VEL %f", channel_, maxVelocity * PULSES_PER_STEP);
+  sprintf(pC_->outString_, ":CHAN%d:VEL %f", axisNo_, maxVelocity * PULSES_PER_STEP);
   status = pC_->writeController();
   pC_->clearErrors();
   // Begin move
-  sprintf(pC_->outString_, ":REF%d", channel_);
+  sprintf(pC_->outString_, ":REF%d", axisNo_);
   status = pC_->writeController();
   pC_->clearErrors();
 
@@ -433,7 +419,7 @@ asynStatus MCS2Axis::stop(double acceleration)
 {
   asynStatus status;
 
-  sprintf(pC_->outString_, ":STOP%d", channel_);
+  sprintf(pC_->outString_, ":STOP%d", axisNo_);
   status = pC_->writeController();
 
   return status;
@@ -443,8 +429,8 @@ asynStatus MCS2Axis::setPosition(double position)
 {
   asynStatus status = asynSuccess;
 
-  sprintf(pC_->outString_, ":CHAN%d:POS %f", channel_, position * PULSES_PER_STEP);
-  DBG_PRINTF("MCS2Axis::setPosition: %s",pC_->outString_);
+  sprintf(pC_->outString_, ":CHAN%d:POS %f", axisNo_, position * PULSES_PER_STEP);
+  DBG_PRINTF(1,"MCS2Axis::setPosition: %s",pC_->outString_);
   status = pC_->writeController();
   return status;
 }
@@ -477,7 +463,7 @@ asynStatus MCS2Axis::poll(bool *moving)
   asynStatus comStatus = asynSuccess;
 
   // Read the channel state
-  sprintf(pC_->outString_, ":CHAN%d:STAT?", channel_);
+  sprintf(pC_->outString_, ":CHAN%d:STAT?", axisNo_);
   comStatus = pC_->writeReadController();
   if (comStatus) goto skip;
   chanState = atoi(pC_->inString_);
@@ -491,9 +477,9 @@ asynStatus MCS2Axis::poll(bool *moving)
   followLimitReached = (chanState & FOLLOWING_LIMIT_REACHED) ? 1 : 0;
   movementFailed = (chanState & MOVEMENT_FAILED) ? 1 : 0;
   refMark = (chanState & REFERENCE_MARK) ? 1 : 0;
-  //if (channel_==0)
+  //if (axisNo_==0)
   //{ //debug code
-  //  int hasEnc; pC_->getIntegerParam(channel_, pC_->motorStatusHasEncoder_, &hasEnc);
+  //  int hasEnc; pC_->getIntegerParam(axisNo_, pC_->motorStatusHasEncoder_, &hasEnc);
   //  printf("chanState:0x%x hasEnc:%d closedLoop:%d\n",chanState,hasEnc,closedLoop);
   //}
   *moving = done ? false : true;
@@ -512,7 +498,7 @@ asynStatus MCS2Axis::poll(bool *moving)
   {
     // avoid pollong POS? if there is no sensor present. This would not return a value and block the polling for 1-2 sec
   // Read the current encoder position
-    sprintf(pC_->outString_, ":CHAN%d:POS?", channel_);
+    sprintf(pC_->outString_, ":CHAN%d:POS?", axisNo_);
     comStatus = pC_->writeReadController();
     if (comStatus) goto skip;
     encoderPosition = (double)strtod(pC_->inString_, NULL);
@@ -520,7 +506,7 @@ asynStatus MCS2Axis::poll(bool *moving)
     setDoubleParam(pC_->motorEncoderPosition_, encoderPosition);
 
     // Read the current theoretical position
-    sprintf(pC_->outString_, ":CHAN%d:POS:TARG?", channel_);
+    sprintf(pC_->outString_, ":CHAN%d:POS:TARG?", axisNo_);
     comStatus = pC_->writeReadController();
     if (comStatus) goto skip;
     theoryPosition = (double)strtod(pC_->inString_, NULL);
@@ -529,14 +515,14 @@ asynStatus MCS2Axis::poll(bool *moving)
   }
 
   // Read the drive power on status
-  sprintf(pC_->outString_, ":CHAN%d:AMPL?", channel_);
+  sprintf(pC_->outString_, ":CHAN%d:AMPL?", axisNo_);
   comStatus = pC_->writeReadController();
   if (comStatus) goto skip;
   driveOn = atoi(pC_->inString_) ? 1 : 0;
   setIntegerParam(pC_->motorStatusPowerOn_, driveOn);
 
   // Read the currently selected positioner type
-  sprintf(pC_->outString_, ":CHAN%d:PTYP?", channel_);
+  sprintf(pC_->outString_, ":CHAN%d:PTYP?", axisNo_);
   comStatus = pC_->writeReadController();
   if (comStatus) goto skip;
   positionerType = atoi(pC_->inString_);
@@ -546,12 +532,12 @@ asynStatus MCS2Axis::poll(bool *moving)
   if (done)
   {
     setIntegerParam(pC_->cal_, isCalibrated);
-    sprintf(pC_->outString_, ":CHAN%d:MCLF?", channel_);
+    sprintf(pC_->outString_, ":CHAN%d:MCLF?", axisNo_);
     comStatus = pC_->writeReadController();
         if (comStatus) goto skip;
     mclf = atoi(pC_->inString_);
     setIntegerParam(pC_->mclf_, mclf);
-    sprintf(pC_->outString_, ":CHAN%d:HOLD?", channel_);
+    sprintf(pC_->outString_, ":CHAN%d:HOLD?", axisNo_);
     comStatus = pC_->writeReadController();
         if (comStatus) goto skip;
     hold = atoi(pC_->inString_);
@@ -564,28 +550,105 @@ skip:
   return comStatus ? asynError : asynSuccess;
 }
 
-/** Code for iocsh registration */
+// Code for iocsh registration
 static const iocshArg MCS2CreateControllerArg0 = {"Port name", iocshArgString};
 static const iocshArg MCS2CreateControllerArg1 = {"MCS2 port name", iocshArgString};
 static const iocshArg MCS2CreateControllerArg2 = {"Number of axes", iocshArgInt};
 static const iocshArg MCS2CreateControllerArg3 = {"Moving poll period (ms)", iocshArgInt};
 static const iocshArg MCS2CreateControllerArg4 = {"Idle poll period (ms)", iocshArgInt};
-static const iocshArg MCS2CreateControllerArg5 = {"Unused bit mask", iocshArgInt};
-static const iocshArg *const MCS2CreateControllerArgs[] = {&MCS2CreateControllerArg0,
-                                                           &MCS2CreateControllerArg1,
-                                                           &MCS2CreateControllerArg2,
-                                                           &MCS2CreateControllerArg3,
-                                                           &MCS2CreateControllerArg4,
-                                                           &MCS2CreateControllerArg5};
+static const iocshArg MCS2CreateControllerArg5 = {"debug level", iocshArgInt};
+static const iocshArg *const MCS2CreateControllerArgs[] = {&MCS2CreateControllerArg0, &MCS2CreateControllerArg1, &MCS2CreateControllerArg2,
+                                                           &MCS2CreateControllerArg3, &MCS2CreateControllerArg4, &MCS2CreateControllerArg5};
 static const iocshFuncDef MCS2CreateControllerDef = {"MCS2CreateController", 6, MCS2CreateControllerArgs};
 static void MCS2CreateContollerCallFunc(const iocshArgBuf *args)
 {
   MCS2CreateController(args[0].sval, args[1].sval, args[2].ival, args[3].ival, args[4].ival, args[5].ival);
 }
 
+extern "C" void MCS2Extra(int argc, char **argv)
+{
+  const char* usage[]={
+         "MCS2Extra report <ASYNPORT>",
+         "MCS2Extra setDbgLvlAxis <ASYNPORT> <AX> <HEX_DBGLVL>\n"\
+         "Debug bits Axis (default value 0x00ff):\n"\
+         "  0x001 : constructor\n"\
+         "  0x002 : move, moveVelocity, stop, homing, setPosition\n"\
+         "  0x004 :  checkType()\n"\
+         "  0x008 : user asyn reason\n"\
+         "  0x010 : \n"\
+         "  0x020 : \n"\
+         "  0x100 : polling\n",
+      };
+  uint32_t i;
+  if (argc<2)
+  {
+    for(i=0;i<_countof(usage);i++)
+      puts(usage[i]);
+  }
+  else if(!strcmp("report",argv[1]))
+  {
+    if(argc < 3)
+      puts(usage[0]);
+    else
+    {
+      MCS2Controller* pC = (MCS2Controller*) findAsynPortDriver(argv[2]);
+      if(!pC)
+      {
+        puts(usage[0]);
+        return;
+      }
+      for(i=0;i<32;i++)
+      {
+        MCS2Axis* ax=(MCS2Axis*)pC->getAxis(i);
+        if(!ax)
+          break;
+        printf("axis:%d dbgVerb %x\n",i,ax->dbgLvl_);
+      }
+    }
+  }
+  else if(!strcmp("setDbgLvlAxis",argv[1]))
+  {
+    if(argc < 5)
+      puts(usage[1]);
+    else
+    {
+      MCS2Controller* pC = (MCS2Controller*) findAsynPortDriver(argv[2]);
+      if(!pC)
+      {
+        puts(usage[1]);
+        return;
+      }
+      MCS2Axis* ax=(MCS2Axis*)pC->getAxis(atoi(argv[3]));
+      printf("MCS2Extra %s:%s:%s = %p\n",argv[1],argv[2],argv[3],ax);
+      if(ax)
+      {
+        uint32_t oldVal=ax->dbgLvl_,newVal=strtol(argv[4], NULL, 0);
+        ax->dbgLvl_=newVal;
+        printf(" dbgVerb 0x%x->0x%x\n",oldVal,newVal);
+      }
+    }
+  }
+  else
+  {
+    for(uint32_t i=0;i<_countof(usage);i++)
+      puts(usage[i]);
+  }
+}
+
+// Information needed by iocsh
+static const iocshArg     MCS2ExtraArg0= {"[report|setAxisDbgLvl] <variable arguments>", iocshArgArgv};
+static const iocshArg    *MCS2ExtraArgs[] = {&MCS2ExtraArg0};
+static const iocshFuncDef MCS2ExtraFuncDef = {"MCS2Extra", 1, MCS2ExtraArgs};
+
+// Wrapper called by iocsh, selects the argument types that MCS2Extra needs
+static void MCS2ExtraCallFunc(const iocshArgBuf *args) {
+  MCS2Extra(args[0].aval.ac, args[0].aval.av);
+}
+
 static void MCS2MotorRegister(void)
 {
   iocshRegister(&MCS2CreateControllerDef, MCS2CreateContollerCallFunc);
+  iocshRegister(&MCS2ExtraFuncDef, MCS2ExtraCallFunc);
 }
 
 extern "C" {

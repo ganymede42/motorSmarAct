@@ -71,11 +71,13 @@ const unsigned short   STOP_ON_REF_FOUND       = 0x0020;
 #define MCS2HoldString "HOLD"
 #define MCS2CalString "CAL"
 
-class epicsShareClass MCS2Axis : public asynMotorAxis
+extern "C" void MCS2Extra(int argc, char **argv); //forward declaration for 'friend'
+
+class MCS2Axis : public asynMotorAxis
 {
 public:
-  /* These are the methods we override from the base class */
-  MCS2Axis(class MCS2Controller *pC, int axis);
+  MCS2Axis(class MCS2Controller *pC, int axis, int dbgLvl);
+  // These are the methods we override from the base class
   void report(FILE *fp, int level);
   asynStatus poll(bool *moving);
   asynStatus move(double position, int relative, double min_velocity, double max_velocity, double acceleration);
@@ -84,35 +86,33 @@ public:
   asynStatus setPosition(double position);
 
 private:
-  MCS2Controller *pC_; /**< Pointer to the asynMotorController to which this axis belongs.
-                        *   Abbreviated because it is used very frequently */
-  int channel_;
+  MCS2Controller *pC_; // Pointer to the asynMotorController to which this axis belongs. Abbreviated because it is used very frequently
+  int dbgLvl_;
 
   friend class MCS2Controller;
+  friend void MCS2Extra(int argc, char **argv);
 };
 
-class epicsShareClass MCS2Controller : public asynMotorController
+class MCS2Controller : public asynMotorController
 {
 public:
-  MCS2Controller(const char *portName, const char *MCS2PortName, int numAxes, double movingPollPeriod, double idlePollPeriod, int unusedMask = 0);
-  virtual asynStatus clearErrors();
-
-  /* These are the methods that we override from asynMotorDriver */
+  MCS2Controller(const char *portName, const char *MCS2PortName, int numAxes, double movingPollPeriod, double idlePollPeriod, int dbgLvl);
+  asynStatus clearErrors();
+  // These are the methods that we override from asynMotorDriver
   asynStatus writeInt32(asynUser *pasynUser, epicsInt32 value);
-
-  /* These are the methods that we override from asynMotorDriver */
+  // These are the methods that we override from asynMotorDriver
   void report(FILE *fp, int level);
   MCS2Axis *getAxis(asynUser *pasynUser);
   MCS2Axis *getAxis(int axisNo);
 
 protected:
-  int ptyp_;    /**< positioner type */
+  int ptyp_;    // positioner type
 #define FIRST_MCS2_PARAM ptyp_
-  int ptyprb_;  /**< positioner type readback */
-  int pstatrb_; /**< positoner status word readback */
-  int mclf_;    /**< MCL frequency */
-  int hold_;    /**< hold time */
-  int cal_;     /**< calibration command */
+  int ptyprb_;  // positioner type readback
+  int pstatrb_; // positoner status word readback
+  int mclf_;    // MCL frequency
+  int hold_;    // hold time
+  int cal_;     // calibration command
 #define LAST_MCS2_PARAM cal_
 #define NUM_MCS2_PARAMS (&LAST_MCS2_PARAM - &FIRST_MCS2_PARAM + 1)
 
