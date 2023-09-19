@@ -72,6 +72,35 @@ const unsigned short   STOP_ON_REF_FOUND       = 0x0020;
 #define MCS2CalString "CAL"
 
 extern "C" void MCS2Extra(int argc, char **argv); //forward declaration for 'friend'
+class MCS2Axis;
+
+class MCS2Controller : public asynMotorController
+{
+public:
+  MCS2Controller(const char *asynPort, const char *ctrlPort, int numAxes, double movingPollPeriod, double idlePollPeriod, int dbgLvl);
+  // functions override from asynMotorDriver
+  asynStatus writeInt32(asynUser *pasynUser, epicsInt32 value);
+  // These are the methods that we override from asynMotorDriver
+  void report(FILE *fp, int level);
+
+  // own member functions
+  asynStatus clearErrors();
+  asynStatus cmdWrite(bool dbg,const char *fmt, ...);
+  asynStatus cmdWriteRead(bool dbg,const char *fmt, ...);
+
+protected:
+  int ptyp_;    // positioner type
+#define FIRST_MCS2_PARAM ptyp_
+  int ptyprb_;  // positioner type readback
+  int pstatrb_; // positoner status word readback
+  int mclf_;    // MCL frequency
+  int hold_;    // hold time
+  int cal_;     // calibration command
+#define LAST_MCS2_PARAM cal_
+#define NUM_MCS2_PARAMS (&LAST_MCS2_PARAM - &FIRST_MCS2_PARAM + 1)
+
+  friend class MCS2Axis;
+};
 
 class MCS2Axis : public asynMotorAxis
 {
@@ -93,32 +122,3 @@ private:
   friend void MCS2Extra(int argc, char **argv);
 };
 
-class MCS2Controller : public asynMotorController
-{
-public:
-  MCS2Controller(const char *portName, const char *MCS2PortName, int numAxes, double movingPollPeriod, double idlePollPeriod, int dbgLvl);
-  // functions override from asynMotorDriver
-  asynStatus writeInt32(asynUser *pasynUser, epicsInt32 value);
-  // These are the methods that we override from asynMotorDriver
-  void report(FILE *fp, int level);
-  MCS2Axis *getAxis(asynUser *pasynUser);
-  MCS2Axis *getAxis(int axisNo);
-
-  // own member functions
-  asynStatus clearErrors();
-  asynStatus cmdWrite(bool dbg,const char *fmt, ...);
-  asynStatus cmdWriteRead(bool dbg,const char *fmt, ...);
-
-protected:
-  int ptyp_;    // positioner type
-#define FIRST_MCS2_PARAM ptyp_
-  int ptyprb_;  // positioner type readback
-  int pstatrb_; // positoner status word readback
-  int mclf_;    // MCL frequency
-  int hold_;    // hold time
-  int cal_;     // calibration command
-#define LAST_MCS2_PARAM cal_
-#define NUM_MCS2_PARAMS (&LAST_MCS2_PARAM - &FIRST_MCS2_PARAM + 1)
-
-  friend class MCS2Axis;
-};

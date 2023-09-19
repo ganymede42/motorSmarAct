@@ -25,6 +25,35 @@
 
 extern "C" void MCSExtra(int argc, char **argv); //forward declaration for 'friend'
 
+class MCSController : public asynMotorController
+{
+public:
+  MCSController(const char *portName, const char *IOPortName, int numAxes, double movingPollPeriod, double idlePollPeriod, int dbgLvl);
+
+  // functions override from asynMotorDriver
+  asynStatus writeInt32(asynUser *asynUser, epicsInt32 value);
+
+  // own member functions
+  asynStatus cmdWriteRead(bool dbg,const char *fmt, ...);
+  int parse2Val(int *val1,int *val2);
+  int parse3Val(int *val1,int *val2,int *val3);
+
+private:
+  int ptyp_;     //positioner type
+#define FIRST_MCS_PARAM ptyp_
+  int ptyprb_;   //positioner type readback
+  int autoZero_;
+  int holdTime_;
+  int sclf_;     //set maximum closed loop frequency
+  int cal_;      //calibration command
+#define LAST_MCS_PARAM cal_
+#define NUM_MCS_PARAMS (&LAST_MCS_PARAM - &FIRST_MCS_PARAM + 1)
+
+  friend class MCSAxis;
+  friend void MCSExtra(int argc, char **argv);
+};
+
+
 class MCSAxis : public asynMotorAxis
 {
 public:
@@ -52,41 +81,6 @@ private:
   enum DevType {DT_NO_SENSOR, DT_LIN, DT_ROT};
   enum DevType devType_;
   friend class MCSController;
-  friend void MCSExtra(int argc, char **argv);
-};
-
-
-class MCSController : public asynMotorController
-{
-public:
-  MCSController(const char *portName, const char *IOPortName, int numAxes, double movingPollPeriod, double idlePollPeriod, int dbgLvl);
-
-  // functions override from asynMotorDriver
-  asynStatus writeInt32(asynUser *asynUser, epicsInt32 value);
-
-  // own member functions
-  asynStatus cmdWriteRead(bool dbg,const char *fmt, ...);
-  int parse2Val(int *val1,int *val2);
-  int parse3Val(int *val1,int *val2,int *val3);
-
-
-protected:
-  MCSAxis **pAxes_;
-
-private:
-  asynUser *pAsynUserMot_;
-
-  int ptyp_;     //positioner type
-#define FIRST_MCS_PARAM ptyp_
-  int ptyprb_;   //positioner type readback
-  int autoZero_;
-  int holdTime_;
-  int sclf_;     //set maximum closed loop frequency
-  int cal_;      //calibration command
-#define LAST_MCS_PARAM cal_
-#define NUM_MCS_PARAMS (&LAST_MCS_PARAM - &FIRST_MCS_PARAM + 1)
-
-  friend class MCSAxis;
   friend void MCSExtra(int argc, char **argv);
 };
 

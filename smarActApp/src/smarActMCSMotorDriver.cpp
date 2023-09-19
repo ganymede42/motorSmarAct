@@ -51,6 +51,169 @@ enum SmarActMCSStatus {
   Locked = 9
 };
 
+//------------------------------------------------------------------
+
+// Creates a new controller object.
+// \param[in] ctrlPort             name of the port that will be created for this driver
+// \param[in] asynPort             name of the drvAsynIPPPort that was created previously
+// \param[in] numAxes              number of axes that this controller supports
+// \param[in] movingPollPeriod     time in ms between polls when any axis is moving
+// \param[in] idlePollPeriod       time in ms between polls when no axis is moving
+MCSController::MCSController(const char *ctrlPort, const char *asynPort, int numAxes, double movingPollPeriod, double idlePollPeriod, int dbgLvl)
+    : asynMotorController(ctrlPort, numAxes,
+                          0, // parameters
+                          0, // interface mask
+                          0, // interrupt mask
+                          ASYN_CANBLOCK | ASYN_MULTIDEVICE,
+                          1,    // autoconnect
+                          0, 0) // default priority and stack size
+{
+  asynStatus status;
+  int axis;
+
+  createParam(MCSPtypString, asynParamInt32, &this->ptyp_);
+  createParam(MCSPtypRbString, asynParamInt32, &this->ptyprb_);
+  createParam(MCSAutoZeroString, asynParamInt32, &this->autoZero_);
+  createParam(MCSHoldTimeString, asynParamInt32, &this->holdTime_);
+  createParam(MCSSclfString, asynParamInt32, &this->sclf_);
+  createParam(MCSCalString, asynParamInt32, &this->cal_);
+
+  status = pasynOctetSyncIO->connect(asynPort, 0, &pasynUserController_, NULL);
+  if (status) {
+    asynPrint(this->pasynUserSelf, ASYN_TRACE_ERROR, "MCSController:MCSController: cannot connect to MCS controller\n");
+  }
+  pasynOctetSyncIO->setInputEos(pasynUserController_, "\n", 1);
+  pasynOctetSyncIO->setOutputEos(pasynUserController_, "\n", 1);
+
+  // Create the axis objects
+  for(axis=0; axis<numAxes; axis++){
+    new MCSAxis(this, axis,dbgLvl);
+  }
+
+  //User specifies poll periods in milliseconds, starPoller expects seconds
+  startPoller(movingPollPeriod/1000., idlePollPeriod/1000., 0);
+}
+
+// Called when asyn clients call pasynInt32->write().
+// Extracts the function and axis number from pasynUser.
+// Sets the value in the parameter library.
+// For all other functions it calls asynMotorController::writeInt32.
+// Calls any registered callbacks for this pasynUser->reason and address.
+// \param[in] pasynUser asynUser structure that encodes the reason and address.
+// \param[in] value     Value to write. */
+asynStatus MCSController::writeInt32(asynUser *pasynUser, epicsInt32 value)
+{
+  int function = pasynUser->reason;
+  asynStatus status = asynSuccess;
+  int val, ax;
+  MCSAxis *pAxis = static_cast<MCSAxis *>(getAxis(pasynUser));
+
+  if (!pAxis) {
+    asynPrint(pasynUser, ASYN_TRACE_ERROR, "MCSController:writeInt32: error, function: %i. Invalid axis number.\n", function);
+    return asynError;
+  }
+
+  // Set the parameter and readback in the parameter library.  This may be overwritten when we read back the
+  // status at the end, but that's OK
+  // status = setIntegerParam(pAxis->axisNo_, function, value);
+
+  if (function == ptyp_) {
+    // set positioner type
+    status = cmdWriteRead(pAxis->dbgLvl_&0x08,":SST%i,%i", pAxis->axisNo_, value);
+    if (status) return status;
+    if (parse2Val(&ax, &val)) return asynError;
+    pAxis->checkType();
+  }
+  else if (function == cal_) {
+    // send calibration command
+    status = cmdWriteRead(pAxis->dbgLvl_&0x08, ":CS%i", pAxis->axisNo_);
+    if (status) return status;
+    if (parse2Val(&ax, &val)) return asynError;
+  }
+  else if (function == sclf_) {
+    // set piezo MaxClockFreq
+    status = cmdWriteRead(pAxis->dbgLvl_&0x08, ":SCLF%i,%i", pAxis->axisNo_, value);
+    if (status) return status;
+    if (parse2Val(&ax, &val)) return asynError;
+  }
+  else {
+    // Call base class method
+    status = asynMotorController::writeInt32(pasynUser, value);
+  }
+
+  // Do callbacks so higher layers see any changes
+  callParamCallbacks(pAxis->axisNo_);
+  if (status)
+    asynPrint(pasynUser, ASYN_TRACE_ERROR,
+          "MCSController:writeInt32: error, status=%d function=%d, value=%d\n",
+          status, function, value);
+  else
+    asynPrint(pasynUser, ASYN_TRACEIO_DRIVER,
+          "MCSController:writeInt32: function=%d, value=%d\n",
+          function, value);
+  return status;
+}
+
+
+// Parse reply from MCS and return the value converted to a number.
+// expected format:
+// :<COMMAND><val1>,<val2>
+// If the string cannot be parsed, i.e., is not in the format
+// then the routine returns '-1'
+// if <COMMAND> starts with 'E'
+// (which means an 'Error' code) then the (always non-negative)
+// error code is returned (may be zero in case of an 'acknowledgement'
+// If the string is parsed successfully then <value> is passed up
+// in *val and 0 is returned
+int MCSController::parse2Val(int *val1, int *val2)
+{
+  char cmd[10];
+  if (3 != sscanf(outString_, ":%10[A-Z]%i,%i", cmd, val1, val2))
+    return -1;
+  return 'E' == cmd[0] ? *val2 : 0;
+}
+
+// Parse reply from MCS and return the value converted to a number.
+// expected format:
+// :<COMMAND><val1>,<val2>,<val3>
+// If the string cannot be parsed, i.e., is not in the format
+// then the routine returns '-1'
+// if <COMMAND> starts with 'E'
+// (which means an 'Error' code) then the (always non-negative)
+// error code is returned (may be zero in case of an 'acknowledgement'
+// If the string is parsed successfully then <value> is passed up
+// in *val and 0 is returned
+int MCSController::parse3Val(int *val1, int *val2, int *val3)
+{
+  char cmd[10];
+  if (4 != sscanf(outString_, ":%10[A-Z]%i,%i,%i", cmd, val1, val2, val3))
+    return -1;
+  return 'E' == cmd[0] ? *val2 : 0;
+}
+
+//formatted write string to member outString_
+//reads returned string in outString_
+//if dbg !=0 the strings are printed to the console
+asynStatus MCSController::cmdWriteRead(bool dbg,const char *fmt, ...)
+{
+  asynStatus ast;
+  va_list ap;
+  va_start(ap, fmt);
+  epicsVsnprintf(outString_, sizeof(outString_), fmt, ap);
+  va_end(ap);
+  DBG_PRINTF(dbg,"MCSController::cmdWriteRead: %s -> ",outString_);
+  {
+    size_t nwrite,nread;
+    int eomReason;
+    ast = pasynOctetSyncIO->writeRead(pasynUserController_, outString_, strlen(outString_), outString_,  sizeof(outString_), DEFLT_TIMEOUT, &nwrite, &nread, &eomReason);
+  }
+  //ast = this->writeReadController();
+#ifdef DEBUG
+  if(dbg) puts(outString_);
+#endif
+  return ast;
+}
+
 //-----------------------------------------------------------
 
 MCSAxis::MCSAxis(class MCSController *pC, int axis, int dbgLvl)
@@ -396,165 +559,6 @@ asynStatus MCSAxis::setSpeed(double velocity)
 
 //------------------------------------------------------------------
 
-MCSController::MCSController(const char *portName, const char *IOPortName, int numAxes, double movingPollPeriod, double idlePollPeriod, int dbgLvl)
-    : asynMotorController(portName, numAxes,
-                          0, // parameters
-                          0, // interface mask
-                          0, // interrupt mask
-                          ASYN_CANBLOCK | ASYN_MULTIDEVICE,
-                          1,    // autoconnect
-                          0, 0), // default priority and stack size
-       pAsynUserMot_(0)
-{
-  asynStatus status;
-  int axis;
-  pAxes_ = (MCSAxis **)(asynMotorController::pAxes_);
-
-  createParam(MCSPtypString, asynParamInt32, &this->ptyp_);
-  createParam(MCSPtypRbString, asynParamInt32, &this->ptyprb_);
-  createParam(MCSAutoZeroString, asynParamInt32, &this->autoZero_);
-  createParam(MCSHoldTimeString, asynParamInt32, &this->holdTime_);
-  createParam(MCSSclfString, asynParamInt32, &this->sclf_);
-  createParam(MCSCalString, asynParamInt32, &this->cal_);
-
-  status = pasynOctetSyncIO->connect(IOPortName, 0, &pAsynUserMot_, NULL);
-  if (status) {
-    asynPrint(this->pasynUserSelf, ASYN_TRACE_ERROR, "MCSController:MCSController: cannot connect to MCS controller\n");
-  }
-  pasynOctetSyncIO->setInputEos(pAsynUserMot_, "\n", 1);
-  pasynOctetSyncIO->setOutputEos(pAsynUserMot_, "\n", 1);
-
-  // Create the axis objects
-  for(axis=0; axis<numAxes; axis++){
-    new MCSAxis(this, axis,dbgLvl);
-  }
-
-  //User specifies poll periods in milliseconds, starPoller expects seconds
-  startPoller(movingPollPeriod/1000, idlePollPeriod/1000, 0);
-}
-
-
-// Parse reply from MCS and return the value converted to a number.
-// expected format:
-// :<COMMAND><val1>,<val2>
-// If the string cannot be parsed, i.e., is not in the format
-// then the routine returns '-1'
-// if <COMMAND> starts with 'E'
-// (which means an 'Error' code) then the (always non-negative)
-// error code is returned (may be zero in case of an 'acknowledgement'
-// If the string is parsed successfully then <value> is passed up
-// in *val and 0 is returned
-int MCSController::parse2Val(int *val1, int *val2)
-{
-  char cmd[10];
-  if (3 != sscanf(outString_, ":%10[A-Z]%i,%i", cmd, val1, val2))
-    return -1;
-  return 'E' == cmd[0] ? *val2 : 0;
-}
-
-// Parse reply from MCS and return the value converted to a number.
-// expected format:
-// :<COMMAND><val1>,<val2>,<val3>
-// If the string cannot be parsed, i.e., is not in the format
-// then the routine returns '-1'
-// if <COMMAND> starts with 'E'
-// (which means an 'Error' code) then the (always non-negative)
-// error code is returned (may be zero in case of an 'acknowledgement'
-// If the string is parsed successfully then <value> is passed up
-// in *val and 0 is returned
-int MCSController::parse3Val(int *val1, int *val2, int *val3)
-{
-  char cmd[10];
-  if (4 != sscanf(outString_, ":%10[A-Z]%i,%i,%i", cmd, val1, val2, val3))
-    return -1;
-  return 'E' == cmd[0] ? *val2 : 0;
-}
-
-//formatted write string to member outString_
-//reads returned string in outString_
-//if dbg !=0 the strings are printed to the console
-asynStatus MCSController::cmdWriteRead(bool dbg,const char *fmt, ...)
-{
-  asynStatus ast;
-  va_list ap;
-  va_start(ap, fmt);
-  epicsVsnprintf(outString_, sizeof(outString_), fmt, ap);
-  va_end(ap);
-  DBG_PRINTF(dbg,"MCSController::cmdWriteRead: %s -> ",outString_);
-  {
-    size_t nwrite,nread;
-    int eomReason;
-    ast = pasynOctetSyncIO->writeRead(pAsynUserMot_, outString_, strlen(outString_), outString_,  sizeof(outString_), DEFLT_TIMEOUT, &nwrite, &nread, &eomReason);
-  }
-  //ast = this->writeReadController();
-#ifdef DEBUG
-  if(dbg) puts(outString_);
-#endif
-  return ast;
-}
-
-// Called when asyn clients call pasynInt32->write().
-// Extracts the function and axis number from pasynUser.
-// Sets the value in the parameter library.
-// For all other functions it calls asynMotorController::writeInt32.
-// Calls any registered callbacks for this pasynUser->reason and address.
-// \param[in] pasynUser asynUser structure that encodes the reason and address.
-// \param[in] value     Value to write. */
-asynStatus MCSController::writeInt32(asynUser *pasynUser, epicsInt32 value)
-{
-  int function = pasynUser->reason;
-  asynStatus status = asynSuccess;
-  int val, ax;
-  MCSAxis *pAxis = static_cast<MCSAxis *>(getAxis(pasynUser));
-
-  if (!pAxis) {
-    asynPrint(pasynUser, ASYN_TRACE_ERROR, "MCSController:writeInt32: error, function: %i. Invalid axis number.\n", function);
-    return asynError;
-  }
-
-  // Set the parameter and readback in the parameter library.  This may be overwritten when we read back the
-  // status at the end, but that's OK
-  // status = setIntegerParam(pAxis->axisNo_, function, value);
-
-  if (function == ptyp_) {
-    // set positioner type
-    status = cmdWriteRead(pAxis->dbgLvl_&0x08,":SST%i,%i", pAxis->axisNo_, value);
-    if (status) return status;
-    if (parse2Val(&ax, &val)) return asynError;
-    pAxis->checkType();
-  }
-  else if (function == cal_) {
-    // send calibration command
-    status = cmdWriteRead(pAxis->dbgLvl_&0x08, ":CS%i", pAxis->axisNo_);
-    if (status) return status;
-    if (parse2Val(&ax, &val)) return asynError;
-  }
-  else if (function == sclf_) {
-    // set piezo MaxClockFreq
-    status = cmdWriteRead(pAxis->dbgLvl_&0x08, ":SCLF%i,%i", pAxis->axisNo_, value);
-    if (status) return status;
-    if (parse2Val(&ax, &val)) return asynError;
-  }
-  else {
-    // Call base class method
-    status = asynMotorController::writeInt32(pasynUser, value);
-  }
-
-  // Do callbacks so higher layers see any changes
-  callParamCallbacks(pAxis->axisNo_);
-  if (status)
-    asynPrint(pasynUser, ASYN_TRACE_ERROR,
-          "MCSController:writeInt32: error, status=%d function=%d, value=%d\n",
-          status, function, value);
-  else
-    asynPrint(pasynUser, ASYN_TRACEIO_DRIVER,
-          "MCSController:writeInt32: function=%d, value=%d\n",
-          function, value);
-  return status;
-}
-
-//------------------------------------------------------------------
-
 // Code for iocsh registration
 static const iocshArg MCSCreateControllerArgLst[] = {
   {"asyn port name",          iocshArgString},
@@ -571,7 +575,7 @@ static const iocshFuncDef MCSCreateControllerFuncDef = {"MCSCreateController", _
 
 static void MCSCreateControllerFunc(const iocshArgBuf *args)
 {
-  assert(new MCSController(args[0].sval, args[1].sval, args[2].ival, args[3].dval, args[4].dval, args[5].ival));
+  assert(new MCSController(args[0].sval, args[1].sval, args[2].ival, args[3].ival, args[4].ival, args[5].ival));
 }
 
 // Code for iocsh registration

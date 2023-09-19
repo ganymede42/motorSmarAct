@@ -31,16 +31,14 @@ Jan 19, 2019
 
 #define _countof(arr) sizeof(arr) / sizeof(arr[0])
 
-/** Creates a new MCS2Controller object.
- * \param[in] portName             The name of the asyn port that will be created for this driver
- * \param[in] MCS2PortName         The name of the drvAsynIPPPort that was created previously to connect to the MCS2 controller
- * \param[in] numAxes              The number of axes that this controller supports
- * \param[in] movingPollPeriod     The time between polls when any axis is moving
- * \param[in] idlePollPeriod       The time between polls when no axis is moving
- */
-MCS2Controller::MCS2Controller(const char *portName, const char *MCS2PortName, int numAxes,
-                               double movingPollPeriod, double idlePollPeriod, int dbgLvl)
-    : asynMotorController(portName, numAxes, NUM_MCS2_PARAMS,
+// Creates a new controller object.
+// \param[in] ctrlPort             name of the port that will be created for this driver
+// \param[in] asynPort             name of the drvAsynIPPPort that was created previously
+// \param[in] numAxes              number of axes that this controller supports
+// \param[in] movingPollPeriod     time in ms between polls when any axis is moving
+// \param[in] idlePollPeriod       time in ms between polls when no axis is moving
+MCS2Controller::MCS2Controller(const char *ctrlPort, const char *asynPort, int numAxes, double movingPollPeriod, double idlePollPeriod, int dbgLvl)
+    : asynMotorController(ctrlPort, numAxes, NUM_MCS2_PARAMS,
                           0, 0,
                           ASYN_CANBLOCK | ASYN_MULTIDEVICE,
                           1,    // autoconnect
@@ -59,7 +57,7 @@ MCS2Controller::MCS2Controller(const char *portName, const char *MCS2PortName, i
   createParam(MCS2CalString, asynParamInt32, &this->cal_);
 
   // Connect to MCS2 controller
-  status = pasynOctetSyncIO->connect(MCS2PortName, 0, &pasynUserController_, NULL);
+  status = pasynOctetSyncIO->connect(asynPort, 0, &pasynUserController_, NULL);
   pasynOctetSyncIO->setInputEos(pasynUserController_, "\r\n", 2);
   pasynOctetSyncIO->setOutputEos(pasynUserController_, "\r\n", 2);
 
@@ -86,19 +84,69 @@ MCS2Controller::MCS2Controller(const char *portName, const char *MCS2PortName, i
   startPoller(movingPollPeriod/1000, idlePollPeriod/1000, 2);
 }
 
-/** Creates a new MCS2Controller object.
- * Configuration command, called directly or from iocsh
- * \param[in] portName          The name of the asyn port that will be created for this driver
- * \param[in] MCS2PortName      The name of the drvAsynIPPPort that was created previously to connect to the MCS2 controller
- * \param[in] numAxes           The number of axes that this controller supports
- * \param[in] movingPollPeriod  The time in ms between polls when any axis is moving
- * \param[in] idlePollPeriod    The time in ms between polls when no axis is moving
- */
-extern "C" int MCS2CreateController(const char *portName, const char *MCS2PortName, int numAxes,
-                                    int movingPollPeriod, int idlePollPeriod, int dbgLvl)
+// Called when asyn clients call pasynInt32->write().
+// Extracts the function and axis number from pasynUser.
+// Sets the value in the parameter library.
+// For all other functions it calls asynMotorController::writeInt32.
+// Calls any registered callbacks for this pasynUser->reason and address.
+// \param[in] pasynUser asynUser structure that encodes the reason and address.
+// \param[in] value     Value to write. */
+asynStatus MCS2Controller::writeInt32(asynUser *pasynUser, epicsInt32 value)
 {
-  new MCS2Controller(portName, MCS2PortName, numAxes, movingPollPeriod, idlePollPeriod, dbgLvl);
-  return (asynSuccess);
+  int function = pasynUser->reason;
+  asynStatus ast = asynSuccess;
+  MCS2Axis *pAxis = (MCS2Axis*)getAxis(pasynUser);
+
+  // Check if axis exists
+  if(!pAxis) return asynError;
+
+  /* Set the parameter and readback in the parameter library.  This may be overwritten when we read back the
+   * status at the end, but that's OK */
+  ast = setIntegerParam(pAxis->axisNo_, function, value);
+
+  if (function == ptyp_) {
+    // set positioner type
+    ast=cmdWrite(1, ":CHAN%d:PTYP %d", pAxis->axisNo_, value);
+  }
+  else if (function == mclf_) {
+    // set piezo MaxClockFreq
+    ast=cmdWrite(1, ":CHAN%d:MCLF:CURR %d", pAxis->axisNo_, value);
+  }
+  else if (function == cal_) {
+    // send calibration command
+    ast=cmdWrite(1, ":CAL%d", pAxis->axisNo_);
+  }
+  else if (function == hold_) {
+    // set holding time
+    ast=cmdWrite(1, ":CHAN%d:HOLD %d", pAxis->axisNo_, value);
+  }
+  else {
+    // Call base class method
+    ast = asynMotorController::writeInt32(pasynUser, value);
+  }
+
+  // Do callbacks so higher layers see any changes
+  callParamCallbacks(pAxis->axisNo_);
+  if (ast)
+    asynPrint(pasynUser, ASYN_TRACE_ERROR, "MCS2Controller::writeInt32: error, status=%d function=%d, value=%d\n", ast, function, value);
+  else
+    asynPrint(pasynUser, ASYN_TRACEIO_DRIVER, "MCS2Controller::writeInt32: function=%d, value=%d\n", function, value);
+  return ast;
+}
+
+// Reports on status of the driver
+// \param[in] fp The file pointer on which report information will be written
+// \param[in] level The level of report detail desired
+//
+// If details > 0 then information is printed about each axis.
+// After printing controller-specific information calls asynMotorController::report()
+void MCS2Controller::report(FILE *fp, int level)
+{
+  fprintf(fp, "MCS2 motor driver %s, numAxes=%d, moving poll period=%f, idle poll period=%f\n",
+          this->portName, numAxes_, movingPollPeriod_, idlePollPeriod_);
+
+  // Call the base class method
+  asynMotorController::report(fp, level);
 }
 
 asynStatus MCS2Controller::clearErrors()
@@ -158,38 +206,6 @@ skip:
   return comStatus ? asynError : asynSuccess;
 }
 
-/** Reports on status of the driver
- * \param[in] fp The file pointer on which report information will be written
- * \param[in] level The level of report detail desired
- *
- * If details > 0 then information is printed about each axis.
- * After printing controller-specific information calls asynMotorController::report()
- */
-void MCS2Controller::report(FILE *fp, int level)
-{
-  fprintf(fp, "MCS2 motor driver %s, numAxes=%d, moving poll period=%f, idle poll period=%f\n",
-          this->portName, numAxes_, movingPollPeriod_, idlePollPeriod_);
-
-  // Call the base class method
-  asynMotorController::report(fp, level);
-}
-
-/** Returns a pointer to an MCS2MotorAxis object.
- * Returns NULL if the axis number encoded in pasynUser is invalid.
- * \param[in] pasynUser asynUser structure that encodes the axis index number. */
-MCS2Axis *MCS2Controller::getAxis(asynUser *pasynUser)
-{
-  return static_cast<MCS2Axis *>(asynMotorController::getAxis(pasynUser));
-}
-
-/** Returns a pointer to an MCS2MotorAxis object.
- * Returns NULL if the axis number encoded in pasynUser is invalid.
- * \param[in] axisNo Axis index number. */
-MCS2Axis *MCS2Controller::getAxis(int axisNo)
-{
-  return static_cast<MCS2Axis *>(asynMotorController::getAxis(axisNo));
-}
-
 //formatted write string to member outString_
 //if dbg !=0 the strings are printed to the console
 asynStatus MCS2Controller::cmdWrite(bool dbg,const char *fmt, ...)
@@ -218,56 +234,6 @@ asynStatus MCS2Controller::cmdWriteRead(bool dbg,const char *fmt, ...)
 #ifdef DEBUG
   if(dbg) puts(inString_);
 #endif
-  return ast;
-}
-
-/** Called when asyn clients call pasynInt32->write().
- * Extracts the function and axis number from pasynUser.
- * Sets the value in the parameter library.
- * For all other functions it calls asynMotorController::writeInt32.
- * Calls any registered callbacks for this pasynUser->reason and address.
- * \param[in] pasynUser asynUser structure that encodes the reason and address.
- * \param[in] value     Value to write. */
-asynStatus MCS2Controller::writeInt32(asynUser *pasynUser, epicsInt32 value)
-{
-  int function = pasynUser->reason;
-  asynStatus ast = asynSuccess;
-  MCS2Axis *pAxis = getAxis(pasynUser);
-
-  // Check if axis exists
-  if(!pAxis) return asynError;
-
-  /* Set the parameter and readback in the parameter library.  This may be overwritten when we read back the
-   * status at the end, but that's OK */
-  ast = setIntegerParam(pAxis->axisNo_, function, value);
-
-  if (function == ptyp_) {
-    // set positioner type
-    ast=cmdWrite(1, ":CHAN%d:PTYP %d", pAxis->axisNo_, value);
-  }
-  else if (function == mclf_) {
-    // set piezo MaxClockFreq
-    ast=cmdWrite(1, ":CHAN%d:MCLF:CURR %d", pAxis->axisNo_, value);
-  }
-  else if (function == cal_) {
-    // send calibration command
-    ast=cmdWrite(1, ":CAL%d", pAxis->axisNo_);
-  }
-  else if (function == hold_) {
-    // set holding time
-    ast=cmdWrite(1, ":CHAN%d:HOLD %d", pAxis->axisNo_, value);
-  }
-  else {
-    // Call base class method
-    ast = asynMotorController::writeInt32(pasynUser, value);
-  }
-
-  // Do callbacks so higher layers see any changes
-  callParamCallbacks(pAxis->axisNo_);
-  if (ast)
-    asynPrint(pasynUser, ASYN_TRACE_ERROR, "MCS2Controller::writeInt32: error, status=%d function=%d, value=%d\n", ast, function, value);
-  else
-    asynPrint(pasynUser, ASYN_TRACEIO_DRIVER, "MCS2Controller::writeInt32: function=%d, value=%d\n", function, value);
   return ast;
 }
 
@@ -570,7 +536,7 @@ static const iocshFuncDef MCS2CreateControllerDef = {"MCS2CreateController", _co
 #undef ARG
 static void MCS2CreateContollerFunc(const iocshArgBuf *args)
 {
-  assert(MCS2CreateController(args[0].sval, args[1].sval, args[2].ival, args[3].ival, args[4].ival, args[5].ival));
+  assert(new MCS2Controller(args[0].sval, args[1].sval, args[2].ival, args[3].ival, args[4].ival, args[5].ival));
 }
 
 // Code for iocsh registration
