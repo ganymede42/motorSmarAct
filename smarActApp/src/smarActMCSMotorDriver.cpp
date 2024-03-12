@@ -1,9 +1,10 @@
-
-/* Motor driver support for smarAct MCS RS-232 Controller   */
-
-/* Derived from ACRMotorDriver.cpp by Mark Rivers, 2011/3/28 */
-
-/* Author: Till Straumann <strauman@slac.stanford.edu>, 9/11 */
+/*--------------------------------------------------------------*
+ * Filename     smarActMCSMotorDriver.cpp                       *
+ * Usage        Motor driver support for smarAct MCS Controller *
+ * Author       Thierry Zamofing <thierry.zamofing@psi.ch>      *
+ *              Adapted from David Vine Jan 19, 2019            *
+ *              Till Straumann <strauman@slac.stanford.edu>     *
+ *--------------------------------------------------------------*/
 
 #include <iocsh.h>
 
@@ -71,12 +72,12 @@ MCSController::MCSController(const char *ctrlPort, const char *asynPort, int num
   asynStatus status;
   int axis;
 
-  createParam(MCSPtypString, asynParamInt32, &this->ptyp_);
-  createParam(MCSPtypRbString, asynParamInt32, &this->ptyprb_);
+  createParam(MCSPtypString,     asynParamInt32, &this->ptyp_);
+  createParam(MCSPtypRbString,   asynParamInt32, &this->ptyprb_);
+  createParam(MCSMclfString,     asynParamInt32, &this->mclf_);
+  createParam(MCSHoldString,     asynParamInt32, &this->hold_);
+  createParam(MCSCalString,      asynParamInt32, &this->cal_);
   createParam(MCSAutoZeroString, asynParamInt32, &this->autoZero_);
-  createParam(MCSHoldTimeString, asynParamInt32, &this->holdTime_);
-  createParam(MCSSclfString, asynParamInt32, &this->sclf_);
-  createParam(MCSCalString, asynParamInt32, &this->cal_);
 
   status = pasynOctetSyncIO->connect(asynPort, 0, &pasynUserController_, NULL);
   if (status) {
@@ -84,6 +85,13 @@ MCSController::MCSController(const char *ctrlPort, const char *asynPort, int num
   }
   pasynOctetSyncIO->setInputEos(pasynUserController_, "\n", 1);
   pasynOctetSyncIO->setOutputEos(pasynUserController_, "\n", 1);
+
+  if(dbgLvl&0x01)
+  {
+    cmdWriteRead(1,":GSI"); //Get System Id
+    cmdWriteRead(1,":GIV"); //Get Interface Version
+    cmdWriteRead(1,":GNC"); //Get Number of Channels
+  }
 
   // Create the axis objects
   for(axis=0; axis<numAxes; axis++){
@@ -104,7 +112,7 @@ MCSController::MCSController(const char *ctrlPort, const char *asynPort, int num
 asynStatus MCSController::writeInt32(asynUser *pasynUser, epicsInt32 value)
 {
   int function = pasynUser->reason;
-  asynStatus status = asynSuccess;
+  asynStatus ast = asynSuccess;
   int val, ax;
   MCSAxis *pAxis = static_cast<MCSAxis *>(getAxis(pasynUser));
 
@@ -115,43 +123,50 @@ asynStatus MCSController::writeInt32(asynUser *pasynUser, epicsInt32 value)
 
   // Set the parameter and readback in the parameter library.  This may be overwritten when we read back the
   // status at the end, but that's OK
-  // status = setIntegerParam(pAxis->axisNo_, function, value);
+  ast = setIntegerParam(pAxis->axisNo_, function, value);
 
   if (function == ptyp_) {
     // set positioner type
-    status = cmdWriteRead(pAxis->dbgLvl_&0x08,":SST%i,%i", pAxis->axisNo_, value);
-    if (status) return status;
-    if (parse2Val(&ax, &val)) return asynError;
-    pAxis->checkType();
+    int curVal;
+    ast = pAxis->getVal(pAxis->dbgLvl_&0x01,"GST", &curVal);
+    if(curVal!=value)
+    { // only set value if it changed -> :SST sets GPPK to 0, so homing is lost -> this avoids to loose homing if ioc is restarted
+      ast = cmdWriteRead(pAxis->dbgLvl_&0x08,":SST%i,%i", pAxis->axisNo_, value);
+      if (ast) return ast;
+      if (parse2Val(&ax, &val)) return asynError;
+      pAxis->checkType();
+    }
   }
   else if (function == cal_) {
     // send calibration command
-    status = cmdWriteRead(pAxis->dbgLvl_&0x08, ":CS%i", pAxis->axisNo_);
-    if (status) return status;
+    ast = cmdWriteRead(pAxis->dbgLvl_&0x08, ":CS%i", pAxis->axisNo_);
+    if (ast) return ast;
     if (parse2Val(&ax, &val)) return asynError;
   }
-  else if (function == sclf_) {
+  else if (function == mclf_) {
     // set piezo MaxClockFreq
-    status = cmdWriteRead(pAxis->dbgLvl_&0x08, ":SCLF%i,%i", pAxis->axisNo_, value);
-    if (status) return status;
+    ast= cmdWriteRead(pAxis->dbgLvl_&0x08, ":SCLF%i,%i", pAxis->axisNo_, value);
+    if (ast) return ast;
     if (parse2Val(&ax, &val)) return asynError;
+  }
+  else if (function == autoZero_) {
   }
   else {
     // Call base class method
-    status = asynMotorController::writeInt32(pasynUser, value);
+    ast = asynMotorController::writeInt32(pasynUser, value);
   }
 
   // Do callbacks so higher layers see any changes
   callParamCallbacks(pAxis->axisNo_);
-  if (status)
+  if (ast)
     asynPrint(pasynUser, ASYN_TRACE_ERROR,
           "MCSController:writeInt32: error, status=%d function=%d, value=%d\n",
-          status, function, value);
+          ast, function, value);
   else
     asynPrint(pasynUser, ASYN_TRACEIO_DRIVER,
           "MCSController:writeInt32: function=%d, value=%d\n",
           function, value);
-  return status;
+  return ast;
 }
 
 
@@ -230,8 +245,8 @@ MCSAxis::MCSAxis(class MCSController *pC, int axis, int dbgLvl)
   if ((ast = getVal(dbgLvl_&0x01,"GS", &val)))
     goto bail;
 
-  setIntegerParam(pC_->autoZero_, 1);
-  setIntegerParam(pC_->holdTime_, 0);
+  setIntegerParam(pC_->autoZero_, 0);
+  setIntegerParam(pC_->hold_,     0);
 
   checkType();
 
@@ -257,7 +272,7 @@ asynStatus MCSAxis::move(double position, int relative, double min_vel, double m
 
   DBG_PRINTF(dbgLvl_&0x02,"MCSAxis::move@%u(pos:%.12g rel:%d min_vel:%.12g max_vel:%.12g)\n", axisNo_, position, relative, min_vel, max_vel);
 
-  pC_->getIntegerParam(axisNo_, pC_->holdTime_, &holdTime);
+  pC_->getIntegerParam(axisNo_, pC_->hold_, &holdTime);
   if ((ast = setSpeed(max_vel)))
     goto bail;
 
@@ -352,7 +367,7 @@ asynStatus MCSAxis::home(double min_vel, double max_vel, double accel, int forwa
     goto bail;
 
   pC_->getIntegerParam(axisNo_, pC_->autoZero_, &autoZero);
-  pC_->getIntegerParam(axisNo_, pC_->holdTime_, &holdTime);
+  pC_->getIntegerParam(axisNo_, pC_->hold_,     &holdTime);
 
   ast = pC_->cmdWriteRead(dbgLvl_&0x02,":FRM%u,%u,%d,%d", axisNo_, forwards ? 0 : 1, holdTime, autoZero);
 bail:

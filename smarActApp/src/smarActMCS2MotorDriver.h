@@ -1,14 +1,14 @@
-/*
-FILENAME...   SmarActMCS2MotorDriver.h
-USAGE...      Motor driver support for the SmarAct MCS2 controller.
-
-David Vine
-Adapted from Mark Rivers' ACR Driver
-Jan 19, 2019
+/*---------------------------------------------------------------*
+ * Filename     smarActMCS2MotorDriver.h                         *
+ * Usage        Motor driver support for smarAct MCS2 Controller *
+ * Author       Thierry Zamofing <thierry.zamofing@psi.ch>       *
+ *              Adapted from David Vine Jan 19, 2019             *
+ *              Till Straumann <strauman@slac.stanford.edu>      *
+ *---------------------------------------------------------------*
 
 Note:
-The MCS2 controller uses 64-bit int for the encoder and target positions. The motor record is limited
-to 32 bit int for RMP (https://github.com/epics-modules/motor/issues/8,
+The MCS2 controller uses 64-bit int for the encoder and target positions.
+The motor record is limited to 32 bit int for RMP (https://github.com/epics-modules/motor/issues/8,
 https://epics.anl.gov/tech-talk/2018/msg00087.php) which effectively limits the travel
 range to +/- 2.1mm.
 Since it doesn't seem the motor record will update to using 64bit int the choices I can see are:
@@ -26,7 +26,6 @@ The two that may be of significant interest are:
   * TTL triggering at specified positions
   * "scan" mode where the piezo stick slip can flex up to 1.6micron to give
      very precise and fast motion
-
 */
 
 #include "asynMotorController.h"
@@ -39,37 +38,38 @@ The two that may be of significant interest are:
 #define PULSES_PER_STEP 1000
 
 /** MCS2 Axis status flags **/
-const unsigned short ACTIVELY_MOVING         = 0x0001;
-const unsigned short CLOSED_LOOP_ACTIVE      = 0x0002;
-const unsigned short CALIBRATING             = 0x0004;
-const unsigned short REFERENCING             = 0x0008;
-const unsigned short MOVE_DELAYED            = 0x0010;
-const unsigned short SENSOR_PRESENT          = 0x0020;
-const unsigned short IS_CALIBRATED           = 0x0040;
-const unsigned short IS_REFERENCED           = 0x0080;
-const unsigned short END_STOP_REACHED        = 0x0100;
-const unsigned short RANGE_LIMIT_REACHED     = 0x0200;
-const unsigned short FOLLOWING_LIMIT_REACHED = 0x0400;
-const unsigned short MOVEMENT_FAILED         = 0x0800;
-const unsigned short STREAMING               = 0x1000;
-const unsigned short OVERTEMP                = 0x4000;
-const unsigned short REFERENCE_MARK          = 0x8000;
+#define  ACTIVELY_MOVING          0x0001
+#define  CLOSED_LOOP_ACTIVE       0x0002
+#define  CALIBRATING              0x0004
+#define  REFERENCING              0x0008
+#define  MOVE_DELAYED             0x0010
+#define  SENSOR_PRESENT           0x0020
+#define  IS_CALIBRATED            0x0040
+#define  IS_REFERENCED            0x0080
+#define  END_STOP_REACHED         0x0100
+#define  RANGE_LIMIT_REACHED      0x0200
+#define  FOLLOWING_LIMIT_REACHED  0x0400
+#define  MOVEMENT_FAILED          0x0800
+#define  STREAMING                0x1000
+#define  OVERTEMP                 0x4000
+#define  REFERENCE_MARK           0x8000
 
 /** MCS2 Axis reference options **/
-const unsigned short   START_DIRECTION         = 0x0001;
-const unsigned short   REVERSE_DIRECTION       = 0x0002;
-const unsigned short   AUTO_ZERO               = 0x0004;
-const unsigned short   ABORT_ON_END_STOP       = 0x0008;
-const unsigned short   CONTINUE_ON_REF_FOUND   = 0x0010;
-const unsigned short   STOP_ON_REF_FOUND       = 0x0020;
+#define START_DIRECTION        0x0001
+#define REVERSE_DIRECTION      0x0002
+#define AUTO_ZERO              0x0004
+#define ABORT_ON_END_STOP      0x0008
+#define CONTINUE_ON_REF_FOUND  0x0010
+#define STOP_ON_REF_FOUND      0x0020
 
 /** drvInfo strings for extra parameters that the MCS2 controller supports */
-#define MCS2PtypString "PTYP"
-#define MCS2PtypRbString "PTYP_RB"
-#define MCS2PstatString "PSTAT"
-#define MCS2MclfString "MCLF"
-#define MCS2HoldString "HOLD"
-#define MCS2CalString "CAL"
+#define MCS2PtypString     "PTYP"
+#define MCS2PtypRbString   "PTYP_RB"
+#define MCS2PstatString    "PSTAT"
+#define MCS2MclfString     "MCLF"
+#define MCS2HoldString     "HOLD"
+#define MCS2CalString      "CAL"
+#define MCS2AutoZeroString "AUTOZERO"
 
 extern "C" void MCS2Extra(int argc, char **argv); //forward declaration for 'friend'
 class MCS2Axis;
@@ -89,14 +89,15 @@ public:
   asynStatus cmdWriteRead(bool dbg,const char *fmt, ...);
 
 protected:
-  int ptyp_;    // positioner type
+  int ptyp_;     // positioner type
+  int ptyprb_;   // positioner type readback
+  int pstatrb_;  // positoner status word readback (only MCS2, MCS1 does not have this feature)
+  int mclf_;     // MCL frequency
+  int hold_;     // hold time
+  int cal_;      // calibration command
+  int autoZero_; // set to 0 position after calibration
 #define FIRST_MCS2_PARAM ptyp_
-  int ptyprb_;  // positioner type readback
-  int pstatrb_; // positoner status word readback
-  int mclf_;    // MCL frequency
-  int hold_;    // hold time
-  int cal_;     // calibration command
-#define LAST_MCS2_PARAM cal_
+#define LAST_MCS2_PARAM autoZero_
 #define NUM_MCS2_PARAMS (&LAST_MCS2_PARAM - &FIRST_MCS2_PARAM + 1)
 
   friend class MCS2Axis;
@@ -110,6 +111,7 @@ public:
   void report(FILE *fp, int level);
   asynStatus poll(bool *moving);
   asynStatus move(double position, int relative, double min_velocity, double max_velocity, double acceleration);
+  asynStatus moveVelocity(double min_velocity, double max_velocity, double acceleration);
   asynStatus home(double min_velocity, double max_velocity, double acceleration, int forwards);
   asynStatus stop(double acceleration);
   asynStatus setPosition(double position);

@@ -1,11 +1,13 @@
+/*--------------------------------------------------------------*
+ * Filename     smarActMCSMotorDriver.h                         *
+ * Usage        Motor driver support for smarAct MCS Controller *
+ * Author       Thierry Zamofing <thierry.zamofing@psi.ch>      *
+ *              Adapted from David Vine Jan 19, 2019            *
+ *              Till Straumann <strauman@slac.stanford.edu>     *
+ *--------------------------------------------------------------*/
+
 #ifndef SMARACT_MCS_MOTOR_DRIVER_H
 #define SMARACT_MCS_MOTOR_DRIVER_H
-
-/* Motor driver support for smarAct MCS RS-232 Controller   */
-
-/* Derived from ACRMotorDriver.cpp by Mark Rivers, 2011/3/28 */
-
-/* Author: Till Straumann <strauman@slac.stanford.edu>, 9/11 */
 
 #ifdef __cplusplus
 
@@ -16,19 +18,20 @@
 #include <epicsTypes.h>
 
 /** drvInfo strings for extra parameters that the MCS2 controller supports */
-#define MCSPtypString "PTYP"
-#define MCSPtypRbString "PTYP_RB"
-#define MCSAutoZeroString "AUTO_ZERO"
-#define MCSHoldTimeString "HOLD"
-#define MCSSclfString "MCLF"
-#define MCSCalString "CAL"
+#define MCSPtypString     "PTYP"
+#define MCSPtypRbString   "PTYP_RB"
+//#define MCSPstatString    "PSTAT"
+#define MCSMclfString     "MCLF"
+#define MCSHoldString     "HOLD"
+#define MCSCalString      "CAL"
+#define MCSAutoZeroString "AUTOZERO"
 
 extern "C" void MCSExtra(int argc, char **argv); //forward declaration for 'friend'
 
 class MCSController : public asynMotorController
 {
 public:
-  MCSController(const char *portName, const char *IOPortName, int numAxes, double movingPollPeriod, double idlePollPeriod, int dbgLvl);
+  MCSController(const char *asynPort, const char *ctrlPort, int numAxes, double movingPollPeriod, double idlePollPeriod, int dbgLvl);
 
   // functions override from asynMotorDriver
   asynStatus writeInt32(asynUser *asynUser, epicsInt32 value);
@@ -39,14 +42,15 @@ public:
   int parse3Val(int *val1,int *val2,int *val3);
 
 private:
-  int ptyp_;     //positioner type
+  int ptyp_;     // positioner type
+  int ptyprb_;   // positioner type readback
+  //int pstatrb_;  // positoner status word readback (only MCS2, MCS1 does not have this feature)
+  int mclf_;     // MCL frequency
+  int hold_;     // hold time
+  int cal_;      // calibration command
+  int autoZero_; // set to 0 position after calibration
 #define FIRST_MCS_PARAM ptyp_
-  int ptyprb_;   //positioner type readback
-  int autoZero_;
-  int holdTime_;
-  int sclf_;     //set maximum closed loop frequency
-  int cal_;      //calibration command
-#define LAST_MCS_PARAM cal_
+#define LAST_MCS_PARAM autoZero_
 #define NUM_MCS_PARAMS (&LAST_MCS_PARAM - &FIRST_MCS_PARAM + 1)
 
   friend class MCSAxis;

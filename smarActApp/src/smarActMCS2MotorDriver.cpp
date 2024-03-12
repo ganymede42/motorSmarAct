@@ -1,11 +1,10 @@
-/*
-FILENAME... SmarActMCS2MotorDriver.cpp
-USAGE...    Motor driver support for the SmarAct MCS2 controller.
-
-David Vine
-Based on the ACR driver of Mark Rivers.
-Jan 19, 2019
-
+/*---------------------------------------------------------------*
+ * Filename     smarActMCS2MotorDriver.cpp                       *
+ * Usage        Motor driver support for smarAct MCS2 Controller *
+ * Author       Thierry Zamofing <thierry.zamofing@psi.ch>       *
+ *              Adapted from David Vine Jan 19, 2019             *
+ *              Till Straumann <strauman@slac.stanford.edu>      *
+ *---------------------------------------------------------------*
 */
 
 #include <stdio.h>
@@ -45,35 +44,30 @@ MCS2Controller::MCS2Controller(const char *ctrlPort, const char *asynPort, int n
                           0, 0) // Default priority and stack size
 {
   int axis;
-  asynStatus status;
-  asynPrint(this->pasynUserSelf, ASYN_TRACEIO_DRIVER, "MCS2Controller::MCS2Controller: Creating controller\n");
-
+  asynStatus ast;
   // Create controller-specific parameters
-  createParam(MCS2PtypString, asynParamInt32, &this->ptyp_);
-  createParam(MCS2PtypRbString, asynParamInt32, &this->ptyprb_);
-  createParam(MCS2PstatString, asynParamInt32, &this->pstatrb_); // whole positioner status word
-  createParam(MCS2MclfString, asynParamInt32, &this->mclf_);
-  createParam(MCS2HoldString, asynParamInt32, &this->hold_);
-  createParam(MCS2CalString, asynParamInt32, &this->cal_);
+  createParam(MCS2PtypString,     asynParamInt32, &this->ptyp_);
+  createParam(MCS2PtypRbString,   asynParamInt32, &this->ptyprb_);
+  createParam(MCS2PstatString,    asynParamInt32, &this->pstatrb_);
+  createParam(MCS2MclfString,     asynParamInt32, &this->mclf_);
+  createParam(MCS2HoldString,     asynParamInt32, &this->hold_);
+  createParam(MCS2CalString,      asynParamInt32, &this->cal_);
+  createParam(MCS2AutoZeroString, asynParamInt32, &this->autoZero_);
 
   // Connect to MCS2 controller
-  status = pasynOctetSyncIO->connect(asynPort, 0, &pasynUserController_, NULL);
+  ast = pasynOctetSyncIO->connect(asynPort, 0, &pasynUserController_, NULL);
   pasynOctetSyncIO->setInputEos(pasynUserController_, "\r\n", 2);
   pasynOctetSyncIO->setOutputEos(pasynUserController_, "\r\n", 2);
 
-  asynPrint(this->pasynUserSelf, ASYN_TRACEIO_DRIVER, "MCS2Controller::MCS2Controller: Connecting to controller\n");
-  if (status) {
-    asynPrint(this->pasynUserSelf, ASYN_TRACE_ERROR, "MCS2Controller::MCS2Controller: cannot connect to MCS2 controller\n");
-  }
-  asynPrint(this->pasynUserSelf, ASYN_TRACEIO_DRIVER, "MCS2Controller::MCS2Controller: Clearing error messages\n");
-  this->clearErrors();
-
-  sprintf(this->outString_, ":DEV:SNUM?");
-  status = this->writeReadController();
-  if (status) {
+  ast = cmdWriteRead(dbgLvl&0x01, ":DEV:SNUM?");
+  if (ast) {
     asynPrint(this->pasynUserSelf, ASYN_TRACE_ERROR,"MCS2Controller::MCS2Controller: cannot connect to MCS2 controller\n");
   }
-  this->clearErrors();
+  ast = cmdWriteRead(dbgLvl&0x01, ":DEV:NOCH?");
+  axis=atoi(this->inString_);
+  if (numAxes>axis) {
+    asynPrint(this->pasynUserSelf, ASYN_TRACE_ERROR,"MCS2Controller::MCS2Controller: allocate more axes than available!\n");
+  }
 
   // Create the axis objects
   for(axis=0; axis<numAxes; axis++){
@@ -81,7 +75,7 @@ MCS2Controller::MCS2Controller(const char *ctrlPort, const char *asynPort, int n
   }
 
   //User specifies poll periods in milliseconds, starPoller expects seconds
-  startPoller(movingPollPeriod/1000, idlePollPeriod/1000, 2);
+  startPoller(movingPollPeriod/1000., idlePollPeriod/1000., 2);
 }
 
 // Called when asyn clients call pasynInt32->write().
@@ -100,25 +94,32 @@ asynStatus MCS2Controller::writeInt32(asynUser *pasynUser, epicsInt32 value)
   // Check if axis exists
   if(!pAxis) return asynError;
 
-  /* Set the parameter and readback in the parameter library.  This may be overwritten when we read back the
-   * status at the end, but that's OK */
+  // Set the parameter and readback in the parameter library.  This may be overwritten when we read back the
+  // status at the end, but that's OK
   ast = setIntegerParam(pAxis->axisNo_, function, value);
 
   if (function == ptyp_) {
     // set positioner type
-    ast=cmdWrite(1, ":CHAN%d:PTYP %d", pAxis->axisNo_, value);
+    if(!value)
+      return asynSuccess; // value 0 is illegal but used to not change at IOC start
+    ast=cmdWrite(pAxis->dbgLvl_&0x08, ":CHAN%d:PTYP %d", pAxis->axisNo_, value);
   }
   else if (function == mclf_) {
     // set piezo MaxClockFreq
-    ast=cmdWrite(1, ":CHAN%d:MCLF:CURR %d", pAxis->axisNo_, value);
+    ast=cmdWrite(pAxis->dbgLvl_&0x08, ":CHAN%d:MCLF:CURR %d", pAxis->axisNo_, value);
   }
   else if (function == cal_) {
     // send calibration command
-    ast=cmdWrite(1, ":CAL%d", pAxis->axisNo_);
+    ast=cmdWrite(pAxis->dbgLvl_&0x08, ":CAL%d", pAxis->axisNo_);
   }
   else if (function == hold_) {
     // set holding time
-    ast=cmdWrite(1, ":CHAN%d:HOLD %d", pAxis->axisNo_, value);
+    ast=cmdWrite(pAxis->dbgLvl_&0x08, ":CHAN%d:HOLD %d", pAxis->axisNo_, value);
+  }
+  else if (function == autoZero_) {
+    // autozero: just stores the value and returns success
+    //ast = setIntegerParam(pAxis->axisNo_, function, value);
+    //ast=asynSuccess
   }
   else {
     // Call base class method
@@ -152,58 +153,27 @@ void MCS2Controller::report(FILE *fp, int level)
 asynStatus MCS2Controller::clearErrors()
 {
 
-  asynStatus comStatus;
-  int numErrorMsgs;
-  char errorMsg[50];
-  int errorCode;
+  asynStatus ast;
+  int numErrMsg;
 
   // Read out error messages
-  sprintf(this->outString_, ":SYST:ERR:COUN?");
-  comStatus = this->writeReadController();
-  if (comStatus) goto skip;
-  numErrorMsgs = atoi(this->inString_);
-  for (int i=0; i<numErrorMsgs; i++){
-    sprintf(this->outString_, ":SYST:ERR?");
-    comStatus = this->writeReadController();
-	  if (comStatus) goto skip;
-    printf("%s", this->inString_);
-    errorCode = atoi(this->inString_);
-	  switch (errorCode){
-    case 259:    sprintf(errorMsg, "No sensor present");
-      break;
-    case 34:     sprintf(errorMsg, "Invalid channel index");
-      break;
-    case 0:      sprintf(errorMsg, "No error");
-      break;
-    case -101:   sprintf(errorMsg, "Invalid character");
-      break;
-    case -103:   sprintf(errorMsg, "Invalid seperator");
-      break;
-    case -104:   sprintf(errorMsg, "Data type error");
-      break;
-    case -108:   sprintf(errorMsg, "Parameter not allowed");
-      break;
-    case -109:   sprintf(errorMsg, "Missing parameter");
-      break;
-    case -113:   sprintf(errorMsg, "Command not exist");
-      break;
-    case -151:   sprintf(errorMsg, "Invalid string");
-      break;
-    case -350:   sprintf(errorMsg, "Queue overflow");
-      break;
-    case -363:   sprintf(errorMsg, "Buffer overrun");
-      break;
-    default:     sprintf(errorMsg, "Unable to decode %d", errorCode);
-      break;
-    }
-    asynPrint(this->pasynUserSelf, ASYN_TRACE_ERROR,
-              "MCS2Controller::clearErrors: %s\n", errorMsg);
+  //ast=cmdWriteRead(1,":SYST:ERR:COUN?");
+  sprintf(outString_,":SYST:ERR:COUN?");
+  ast = writeReadController();
+  if (ast) goto skip;
+  numErrMsg = atoi(inString_);
+  for (int i=0; i<numErrMsg; i++){
+    sprintf(outString_,":SYST:ERR?");
+    ast = writeReadController();
+    if (ast) goto skip;
+    printf("MCS2Controller::clearErrors(): %s\n",inString_);
+    //asynPrint(this->pasynUserSelf, ASYN_TRACE_ERROR, "YMCS2Controller::clearErrors: %d:%s\n", errCode, errMsg);
   }
 
 skip:
-  setIntegerParam(this->motorStatusProblem_, comStatus ? 1 : 0);
+  setIntegerParam(this->motorStatusProblem_, ast ? 1 : 0);
   callParamCallbacks();
-  return comStatus ? asynError : asynSuccess;
+  return ast;
 }
 
 //formatted write string to member outString_
@@ -251,7 +221,9 @@ MCS2Axis::MCS2Axis(MCS2Controller *pC, int axisNo, int dbgLvl)
       dbgLvl_(dbgLvl)
 {
   asynPrint(pC->pasynUserSelf, ASYN_TRACEIO_DRIVER, "MCS2Axis::MCS2Axis: Creating axis %u\n", axisNo);
-  pC_->clearErrors();
+
+  setIntegerParam(pC_->autoZero_, 0); // set initial value
+
   callParamCallbacks();
 }
 
@@ -275,38 +247,29 @@ void MCS2Axis::report(FILE *fp, int level)
     int error;
     int temp;
 
-    asynStatus status;
+    asynStatus ast;
 
-    sprintf(pC_->outString_, ":CHAN%d:PTYP?", axisNo_);
-    status = pC_->writeReadController();
+    ast=pC_->cmdWriteRead(dbgLvl_&0x08, ":CHAN%d:PTYP?", axisNo_);
     pcode = atoi(pC_->inString_);
-    sprintf(pC_->outString_, ":CHAN%d:PTYP:NAME?", axisNo_);
-    status = pC_->writeReadController();
+    ast=pC_->cmdWriteRead(dbgLvl_&0x08, ":CHAN%d:PTYP:NAME?", axisNo_);
     strcpy(pC_->inString_, pname);
-    sprintf(pC_->outString_, ":CHAN%d:STAT?", axisNo_);
-    status = pC_->writeReadController();
+    ast=pC_->cmdWriteRead(dbgLvl_&0x08, ":CHAN%d:STAT?", axisNo_);
     channelState = atoi(pC_->inString_);
-    sprintf(pC_->outString_, ":CHAN%d:VEL?", axisNo_);
-    status = pC_->writeReadController();
+    ast=pC_->cmdWriteRead(dbgLvl_&0x08, ":CHAN%d:VEL?", axisNo_);
     vel = atoi(pC_->inString_);
-    sprintf(pC_->outString_, ":CHAN%d:ACC?", axisNo_);
-    status = pC_->writeReadController();
+    ast=pC_->cmdWriteRead(dbgLvl_&0x08, ":CHAN%d:ACC?", axisNo_);
     acc = atoi(pC_->inString_);
-    sprintf(pC_->outString_, ":CHAN%d:MCLF?", axisNo_);
-    status = pC_->writeReadController();
+    ast=pC_->cmdWriteRead(dbgLvl_&0x08, ":CHAN%d:MCLF?", axisNo_);
     mclf = atoi(pC_->inString_);
-    sprintf(pC_->outString_, ":CHAN%d:FERR?", axisNo_);
-    status = pC_->writeReadController();
+    ast=pC_->cmdWriteRead(dbgLvl_&0x08, ":CHAN%d:FERR?", axisNo_);
     followError = atoi(pC_->inString_);
-    sprintf(pC_->outString_, ":CHAN%d:ERR?", axisNo_);
-    status = pC_->writeReadController();
+    ast=pC_->cmdWriteRead(dbgLvl_&0x08, ":CHAN%d:ERR?", axisNo_);
     error = atoi(pC_->inString_);
-    sprintf(pC_->outString_, ":CHAN%d:TEMP?", axisNo_);
-    status = pC_->writeReadController();
+    ast=pC_->cmdWriteRead(dbgLvl_&0x08, ":CHAN%d:TEMP?", axisNo_);
     temp = atoi(pC_->inString_);
 
-    if (status)
-      fprintf(fp, "  axis %d -> asyn status error %d\n", axisNo_, status);
+    if (ast)
+      fprintf(fp, "  axis %d -> asyn status error %d\n", axisNo_, ast);
     fprintf(fp, "  axis %d\n"
                 "    positioner type %d\n"
                 "    positioner name %s\n"
@@ -338,14 +301,14 @@ asynStatus MCS2Axis::move(double position, int relative, double minVelocity, dou
   pC_->getIntegerParam(axisNo_, pC_->motorStatusHasEncoder_, &hasEnc);
   if(hasEnc)
   {
-    DBG_PRINTF(1,"MCS2Axis::move: closeloop: position: %g rel: %d\n",position,relative);
-    ast=pC_->cmdWrite(1, ":CHAN%d:MMOD %d", axisNo_, relative > 0 ? 1 : 0);
+    DBG_PRINTF(dbgLvl_&0x02, "MCS2Axis::move: closeloop: position: %g rel: %d\n",position,relative);
+    ast=pC_->cmdWrite(dbgLvl_&0x02, ":CHAN%d:MMOD %d", axisNo_, relative > 0 ? 1 : 0);
     // Set acceleration
-    ast=pC_->cmdWrite(1, ":CHAN%d:ACC %f", axisNo_, acceleration * PULSES_PER_STEP);
+    ast=pC_->cmdWrite(dbgLvl_&0x02, ":CHAN%d:ACC %f", axisNo_, acceleration * PULSES_PER_STEP);
     // Set velocity
-    ast=pC_->cmdWrite(1, ":CHAN%d:VEL %f", axisNo_, maxVelocity * PULSES_PER_STEP);
+    ast=pC_->cmdWrite(dbgLvl_&0x02, ":CHAN%d:VEL %f", axisNo_, maxVelocity * PULSES_PER_STEP);
     // Do move
-    ast=pC_->cmdWrite(1, ":MOVE%d %f", axisNo_, position * PULSES_PER_STEP);
+    ast=pC_->cmdWrite(dbgLvl_&0x02, ":MOVE%d %f", axisNo_, position * PULSES_PER_STEP);
   }
   else
   { // move relative in open loop
@@ -355,35 +318,47 @@ asynStatus MCS2Axis::move(double position, int relative, double minVelocity, dou
     if(!relative)
       position=position-curPos;
     curPos+=position;
-    DBG_PRINTF(1,"MCS2Axis::move: openloop: new_pos: %g rel_move: %g\n",curPos,position);
+    DBG_PRINTF(dbgLvl_&0x02, "MCS2Axis::move: openloop: new_pos: %g rel_move: %g\n",curPos,position);
     //:STEP:FREQuency 1..20000, default:1000 Hz.
     //:STEP:AMPLitude 1..65535, default:65535 (100 V).
     setDoubleParam(pC_->motorEncoderPosition_, curPos);
     setDoubleParam(pC_->motorPosition_, curPos);
 
-    ast=pC_->cmdWrite(1, ":CHAN%d:MMOD %d", axisNo_, 4);
-    ast=pC_->cmdWrite(1, ":MOVE%d %f", axisNo_, position);
+    ast=pC_->cmdWrite(dbgLvl_&0x02, ":CHAN%d:MMOD %d", axisNo_, 4);
+    ast=pC_->cmdWrite(dbgLvl_&0x02, ":MOVE%d %f", axisNo_, position);
   }
   return ast;
 }
 
+asynStatus MCS2Axis::moveVelocity(double minVelocity, double maxVelocity, double acceleration)
+{
+  //this is used for jogging: just do a big enough move
+  DBG_PRINTF(dbgLvl_&0x02,"MCSAxis::moveVelocity@%d(min_vel:%.12g max_vel:%.12g\n", axisNo_, minVelocity, maxVelocity);
+  float pos=(maxVelocity>0?1:-1)*1E8;
+  maxVelocity=abs(maxVelocity);
+  return MCS2Axis::move(pos, 1, minVelocity, maxVelocity, acceleration);
+}
+
 asynStatus MCS2Axis::home(double minVelocity, double maxVelocity, double acceleration, int forwards)
 {
+  // MCS2ProgrammersGuide.pdf p.47 : 2.8.1 Reference Marks
+  // do not use autozero for positioners with multiple reference mark!
+  // this will not give consistent home position with multiple reference marks !
   asynStatus ast;
+  int autoZero;
+  pC_->getIntegerParam(axisNo_, pC_->autoZero_, &autoZero);
   unsigned short refOpt = 0;
-  if (forwards==0){
+  if (forwards==0)
     refOpt |= START_DIRECTION;
-  }
-  refOpt |= AUTO_ZERO;
-  // Set default reference options - direction and autozero
-  ast=pC_->cmdWrite(1, ":CHAN%d:REF:OPT %d", axisNo_, refOpt);
+  if(autoZero)
+    refOpt |= AUTO_ZERO;
+  ast=pC_->cmdWrite(dbgLvl_&0x02, ":CHAN%d:REF:OPT %d", axisNo_, refOpt);
   // Set acceleration
-  ast=pC_->cmdWrite(1, ":CHAN%d:ACC %f", axisNo_, acceleration * PULSES_PER_STEP);
+  ast=pC_->cmdWrite(dbgLvl_&0x02, ":CHAN%d:ACC %f", axisNo_, acceleration * PULSES_PER_STEP);
   // Set velocity
-  ast=pC_->cmdWrite(1, ":CHAN%d:VEL %f", axisNo_, maxVelocity * PULSES_PER_STEP);
+  ast=pC_->cmdWrite(dbgLvl_&0x02, ":CHAN%d:VEL %f", axisNo_, maxVelocity * PULSES_PER_STEP);
   // Begin move
-  ast=pC_->cmdWrite(1, ":REF%d", axisNo_);
-  pC_->clearErrors();
+  ast=pC_->cmdWrite(dbgLvl_&0x02, ":REF%d", axisNo_);
   return ast;
 }
 
@@ -391,16 +366,15 @@ asynStatus MCS2Axis::stop(double acceleration)
 {
   asynStatus ast;
   DBG_PRINTF(dbgLvl_&0x02,"MCSAxis::stop@%u()\n",axisNo_);
-  ast=pC_->cmdWrite(1, ":STOP%d", axisNo_);
+  ast=pC_->cmdWrite(dbgLvl_&0x02, ":STOP%d", axisNo_);
   return ast;
 }
 
 asynStatus MCS2Axis::setPosition(double position)
 {
   asynStatus ast;
-  DBG_PRINTF(1,"MCS2Axis::setPosition@%u(%.12g)",axisNo_,position);
-  ast=pC_->cmdWrite(1, ":CHAN%d:POS %f", axisNo_, position * PULSES_PER_STEP);
-  ast = pC_->writeController();
+  DBG_PRINTF(dbgLvl_&0x02,"MCS2Axis::setPosition@%u(%.12g)",axisNo_,position);
+  ast=pC_->cmdWrite(dbgLvl_&0x02, ":CHAN%d:POS %f", axisNo_, position * PULSES_PER_STEP);
   return ast;
 }
 
@@ -429,12 +403,11 @@ asynStatus MCS2Axis::poll(bool *moving)
   int driveOn;
   int mclf;
   int hold;
-  asynStatus comStatus = asynSuccess;
+  asynStatus ast;
 
   // Read the channel state
-  sprintf(pC_->outString_, ":CHAN%d:STAT?", axisNo_);
-  comStatus = pC_->writeReadController();
-  if (comStatus) goto skip;
+  ast=pC_->cmdWriteRead(dbgLvl_&0x100, ":CHAN%d:STAT?", axisNo_);
+  if (ast) goto skip;
   chanState = atoi(pC_->inString_);
   setIntegerParam(pC_->pstatrb_, chanState);
   done = (chanState & ACTIVELY_MOVING) ? 0 : 1;
@@ -467,33 +440,29 @@ asynStatus MCS2Axis::poll(bool *moving)
   {
     // avoid pollong POS? if there is no sensor present. This would not return a value and block the polling for 1-2 sec
   // Read the current encoder position
-    sprintf(pC_->outString_, ":CHAN%d:POS?", axisNo_);
-    comStatus = pC_->writeReadController();
-    if (comStatus) goto skip;
+    ast=pC_->cmdWriteRead(dbgLvl_&0x100, ":CHAN%d:POS?", axisNo_);
+    if (ast) goto skip;
     encoderPosition = (double)strtod(pC_->inString_, NULL);
     encoderPosition /= PULSES_PER_STEP;
     setDoubleParam(pC_->motorEncoderPosition_, encoderPosition);
 
     // Read the current theoretical position
-    sprintf(pC_->outString_, ":CHAN%d:POS:TARG?", axisNo_);
-    comStatus = pC_->writeReadController();
-    if (comStatus) goto skip;
+    ast=pC_->cmdWriteRead(dbgLvl_&0x100, ":CHAN%d:POS:TARG?", axisNo_);
+    if (ast) goto skip;
     theoryPosition = (double)strtod(pC_->inString_, NULL);
     theoryPosition /= PULSES_PER_STEP;
     setDoubleParam(pC_->motorPosition_, theoryPosition);
   }
 
   // Read the drive power on status
-  sprintf(pC_->outString_, ":CHAN%d:AMPL?", axisNo_);
-  comStatus = pC_->writeReadController();
-  if (comStatus) goto skip;
+  ast=pC_->cmdWriteRead(dbgLvl_&0x100, ":CHAN%d:AMPL?", axisNo_);
+  if (ast) goto skip;
   driveOn = atoi(pC_->inString_) ? 1 : 0;
   setIntegerParam(pC_->motorStatusPowerOn_, driveOn);
 
   // Read the currently selected positioner type
-  sprintf(pC_->outString_, ":CHAN%d:PTYP?", axisNo_);
-  comStatus = pC_->writeReadController();
-  if (comStatus) goto skip;
+  ast=pC_->cmdWriteRead(dbgLvl_&0x100, ":CHAN%d:PTYP?", axisNo_);
+  if (ast) goto skip;
   positionerType = atoi(pC_->inString_);
   setIntegerParam(pC_->ptyprb_, positionerType);
 
@@ -501,22 +470,22 @@ asynStatus MCS2Axis::poll(bool *moving)
   if (done)
   {
     setIntegerParam(pC_->cal_, isCalibrated);
-    sprintf(pC_->outString_, ":CHAN%d:MCLF?", axisNo_);
-    comStatus = pC_->writeReadController();
-        if (comStatus) goto skip;
+    ast=pC_->cmdWriteRead(dbgLvl_&0x100, ":CHAN%d:MCLF?", axisNo_);
+    if (ast) goto skip;
     mclf = atoi(pC_->inString_);
     setIntegerParam(pC_->mclf_, mclf);
-    sprintf(pC_->outString_, ":CHAN%d:HOLD?", axisNo_);
-    comStatus = pC_->writeReadController();
-        if (comStatus) goto skip;
+    ast=pC_->cmdWriteRead(dbgLvl_&0x100, ":CHAN%d:HOLD?", axisNo_);
+    if (ast) goto skip;
     hold = atoi(pC_->inString_);
     setIntegerParam(pC_->hold_, hold);
   }
 
 skip:
-  setIntegerParam(pC_->motorStatusProblem_, comStatus ? 1 : 0);
+  if(axisNo_==0) //when axis 0 is in idle mode, just gather any error that occured
+    pC_->clearErrors(); // this just clears/prints error at a decent rate
+  setIntegerParam(pC_->motorStatusProblem_, ast ? 1 : 0);
   callParamCallbacks();
-  return comStatus ? asynError : asynSuccess;
+  return ast ? asynError : asynSuccess;
 }
 
 //------------------------------------------------------------------
