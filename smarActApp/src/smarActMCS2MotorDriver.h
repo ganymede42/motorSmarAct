@@ -67,7 +67,9 @@ The two that may be of significant interest are:
 #define MCS2PtypRbString   "PTYP_RB"
 #define MCS2PstatString    "PSTAT"
 #define MCS2MclfString     "MCLF"
+#define MCS2MclfRbString   "MCLF_RB"
 #define MCS2HoldString     "HOLD"
+#define MCS2HoldRbString   "HOLD_RB"
 #define MCS2CalString      "CAL"
 #define MCS2AutoZeroString "AUTOZERO"
 
@@ -93,7 +95,9 @@ protected:
   int ptyprb_;   // positioner type readback
   int pstatrb_;  // positoner status word readback (only MCS2, MCS1 does not have this feature)
   int mclf_;     // MCL frequency
+  int mclfrb_;   // MCL frequency readback
   int hold_;     // hold time
+  int holdrb_;   // hold time readback
   int cal_;      // calibration command
   int autoZero_; // set to 0 position after calibration
 #define FIRST_MCS2_PARAM ptyp_

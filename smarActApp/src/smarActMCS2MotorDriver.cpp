@@ -50,7 +50,9 @@ MCS2Controller::MCS2Controller(const char *ctrlPort, const char *asynPort, int n
   createParam(MCS2PtypRbString,   asynParamInt32, &this->ptyprb_);
   createParam(MCS2PstatString,    asynParamInt32, &this->pstatrb_);
   createParam(MCS2MclfString,     asynParamInt32, &this->mclf_);
+  createParam(MCS2MclfRbString,   asynParamInt32, &this->mclfrb_);
   createParam(MCS2HoldString,     asynParamInt32, &this->hold_);
+  createParam(MCS2HoldRbString,   asynParamInt32, &this->holdrb_);
   createParam(MCS2CalString,      asynParamInt32, &this->cal_);
   createParam(MCS2AutoZeroString, asynParamInt32, &this->autoZero_);
 
@@ -312,9 +314,9 @@ asynStatus MCS2Axis::move(double position, int relative, double minVelocity, dou
   }
   else
   { // move relative in open loop
-    double curPos;
+    double curPos;//,mRes;
     pC_->getDoubleParam(axisNo_, pC_->motorEncoderPosition_,&curPos);
-    //pC_->getDoubleParam(axisNo_, pC_->motorPosition_, &curPos);
+    //pC_->getDoubleParam(axisNo_, pC_->motorRecResolution_,&mRes);
     if(!relative)
       position=position-curPos;
     curPos+=position;
@@ -325,6 +327,7 @@ asynStatus MCS2Axis::move(double position, int relative, double minVelocity, dou
     setDoubleParam(pC_->motorPosition_, curPos);
 
     ast=pC_->cmdWrite(dbgLvl_&0x02, ":CHAN%d:MMOD %d", axisNo_, 4);
+    //ast=pC_->cmdWrite(dbgLvl_&0x02, ":CHAN%d:FREQ %f", axisNo_, mRes*maxVelocity);
     ast=pC_->cmdWrite(dbgLvl_&0x02, ":MOVE%d %f", axisNo_, position);
   }
   return ast;
@@ -473,11 +476,11 @@ asynStatus MCS2Axis::poll(bool *moving)
     ast=pC_->cmdWriteRead(dbgLvl_&0x100, ":CHAN%d:MCLF?", axisNo_);
     if (ast) goto skip;
     mclf = atoi(pC_->inString_);
-    setIntegerParam(pC_->mclf_, mclf);
+    setIntegerParam(pC_->mclfrb_, mclf);
     ast=pC_->cmdWriteRead(dbgLvl_&0x100, ":CHAN%d:HOLD?", axisNo_);
     if (ast) goto skip;
     hold = atoi(pC_->inString_);
-    setIntegerParam(pC_->hold_, hold);
+    setIntegerParam(pC_->holdrb_, hold);
   }
 
 skip:
